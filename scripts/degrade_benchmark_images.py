@@ -29,7 +29,16 @@ def degrade(image: Image.Image, variant: str) -> Image.Image:
         return image.transform(
             (width, height),
             Image.Transform.QUAD,
-            (35, 20, width - 10, 0, width - 40, height - 15, 5, height),
+            (
+                35,
+                20,
+                width - 10,
+                0,
+                width - 40,
+                height - 15,
+                5,
+                height,
+            ),
             resample=Image.Resampling.BICUBIC,
             fillcolor="white",
         )
@@ -39,7 +48,9 @@ def degrade(image: Image.Image, variant: str) -> Image.Image:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Generate deterministic benchmark image degradations")
+    parser = argparse.ArgumentParser(
+        description="Generate deterministic benchmark image degradations"
+    )
     parser.add_argument(
         "manifest",
         type=Path,
@@ -69,7 +80,10 @@ def main() -> None:
             variant_manifest["cases"].append(updated)
         manifest_out = root / "manifests" / f"{variant}.json"
         manifest_out.parent.mkdir(parents=True, exist_ok=True)
-        manifest_out.write_text(json.dumps(variant_manifest, indent=2), encoding="utf-8")
+        manifest_out.write_text(
+            json.dumps(variant_manifest, indent=2),
+            encoding="utf-8",
+        )
         print(manifest_out)
 
 

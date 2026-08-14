@@ -7,7 +7,9 @@ from pathlib import Path
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Summarize robustness benchmark outputs")
+    parser = argparse.ArgumentParser(
+        description="Summarize robustness benchmark outputs"
+    )
     parser.add_argument("root", type=Path)
     parser.add_argument("--output", type=Path)
     args = parser.parse_args()
@@ -34,7 +36,8 @@ def main() -> None:
     ]
     for variant, note, onset, duration, successful, total in rows:
         lines.append(
-            f"| {variant} | {note:.3f} | {onset:.3f} | {duration:.3f} | {successful}/{total} |"
+            f"| {variant} | {note:.3f} | {onset:.3f} | {duration:.3f} | "
+            f"{successful}/{total} |"
         )
     report = "\n".join(lines) + "\n"
     print(report)
