@@ -2,73 +2,62 @@
 
 Sheet2MIDI should improve through measured recognition accuracy, not by visually inspecting a few MIDI files.
 
-## Corpus
+## Corpus v1
 
-`benchmarks/corpus/manifest.json` defines five initial score layouts:
+`benchmarks/corpus/manifest.json` contains the original five tiny deterministic regression layouts. They remain useful for fast sanity checks, but they are intentionally simple.
 
-1. piano right hand + left hand
-2. instrumental duet
-3. vocal + piano
-4. SATB choir
+## Corpus v2
+
+`benchmarks/corpus-v2/manifest.json` defines five generated four-measure layouts:
+
+1. polyphonic piano grand staff
+2. violin + cello duet
+3. vocal + piano with lyrics
+4. SATB
 5. choir + piano
 
-The ground-truth MusicXML files are synthetic and intentionally small so they can be redistributed and reviewed easily.
-
-## Render the input sheets
-
-Install MuseScore and Sheet2MIDI PDF support, then run:
+Generate the exact ground truth with:
 
 ```bash
-python scripts/render_benchmark_corpus.py
+python scripts/generate_benchmark_v2.py
 ```
 
-For the controlled crop experiment:
+Every note has an explicit MusicXML duration type and the piano/low-instrument parts use explicit clefs. The generator is the source of truth so fixtures are reproducible rather than hand-edited.
+
+Render clean sheets with:
 
 ```bash
-python scripts/render_benchmark_corpus.py --crop-content
+python scripts/render_benchmark_corpus.py benchmarks/corpus-v2/manifest.json
 ```
 
-The crop uses dark-pixel content bounds with configurable threshold and padding. It is intentionally simple: the goal is to measure whether removing large blank page margins materially changes OMR accuracy before adding sophisticated preprocessing.
-
-## Evaluate one prediction
+## Metrics
 
 ```bash
-sheet2midi evaluate \
-  benchmarks/corpus/ground_truth/piano-grand.musicxml \
-  predicted.musicxml
+sheet2midi evaluate reference.musicxml predicted.musicxml
 ```
 
-Default tolerances are 1/8 quarter-note (0.125 quarters) for onset and duration.
+Metrics include pitch+onset F1, strict pitch+onset+duration F1, duration accuracy, mean timing errors, and diagnostic part/staff/voice accuracy.
 
-Metrics include:
+## Robustness matrix
 
-- onset precision / recall / F1: same pitch and onset within tolerance
-- note precision / recall / F1: pitch + onset + duration within tolerance
-- duration accuracy among onset-matched notes
-- mean onset and duration error
-- part, staff, and voice accuracy among matched notes
+The manual `OMR robustness matrix` GitHub Action runs homr against the clean v2 corpus and deterministic degraded variants:
 
-Part/staff/voice scores are diagnostic. OMR engines may rename parts while still recognizing the musical notes correctly.
+- rotation: 2.5°
+- Gaussian blur
+- directional shadow
+- mild perspective warp
+- low-quality JPEG recompression
 
-## Run a real OMR benchmark
-
-After rendering images and installing an OMR engine:
+The degradation files are generated artifacts, not committed benchmark truth. Run locally with:
 
 ```bash
-sheet2midi benchmark benchmarks/corpus/manifest.json --engine homr
+python scripts/generate_benchmark_v2.py
+python scripts/render_benchmark_corpus.py benchmarks/corpus-v2/manifest.json
+python scripts/degrade_benchmark_images.py
 ```
 
-The GitHub Actions benchmark currently runs two homr variants using identical ground truth:
-
-1. full-page MuseScore render
-2. content-cropped render
-
-It then writes a side-by-side comparison so preprocessing changes are measured against the original baseline.
-
-## Baseline caveat
-
-The v1 synthetic fixtures are sparse single-measure systems rendered onto full pages. That makes them useful for deterministic regression tests but not representative of normal sheet scans. Do not interpret the first baseline as a final statement about homr quality.
+Then benchmark any generated manifest under `benchmarks/corpus-v2/manifests/`.
 
 ## Why synthetic first?
 
-Synthetic fixtures give us exact ground truth and remove copyright ambiguity. They are only the baseline. The next corpus layer should add carefully licensed public-domain scans and photographed pages with rotation, perspective distortion, blur, shadows, and JPEG compression.
+Synthetic data gives exact symbolic ground truth and avoids copyright ambiguity. It does **not** replace real scanned scores. The next corpus layer should add redistributable public-domain scans and actual phone photographs, while preserving the same evaluation contract.
