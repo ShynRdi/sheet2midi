@@ -7,6 +7,7 @@ on:
       - '.github/workflows/omr-benchmark.yml'
       - 'benchmarks/**'
       - 'scripts/render_benchmark_corpus.py'
+      - 'scripts/compare_benchmarks.py'
       - 'src/sheet2midi/benchmark/**'
       - 'src/sheet2midi/omr/**'
       - 'src/sheet2midi/pipeline.py'
@@ -37,18 +38,33 @@ jobs:
           pip install homr
       - name: Show backend status
         run: sheet2midi backends
-      - name: Render synthetic corpus
+
+      - name: Render full-page synthetic corpus
         run: python scripts/render_benchmark_corpus.py
-      - name: Run homr benchmark
+      - name: Run full-page homr benchmark
         run: |
           sheet2midi benchmark benchmarks/corpus/manifest.json \
             --engine homr \
-            --output benchmark-out
-      - name: Publish benchmark summary
+            --output benchmark-out/full-page
+
+      - name: Render cropped synthetic corpus
+        run: python scripts/render_benchmark_corpus.py --crop-content
+      - name: Run cropped homr benchmark
+        run: |
+          sheet2midi benchmark benchmarks/corpus/manifest.json \
+            --engine homr \
+            --output benchmark-out/cropped
+
+      - name: Compare preprocessing variants
         if: always()
         run: |
-          if [ -f benchmark-out/benchmark.md ]; then
-            cat benchmark-out/benchmark.md >> "$GITHUB_STEP_SUMMARY"
+          if [ -f benchmark-out/full-page/benchmark.json ] && \
+             [ -f benchmark-out/cropped/benchmark.json ]; then
+            python scripts/compare_benchmarks.py \
+              benchmark-out/full-page/benchmark.json \
+              benchmark-out/cropped/benchmark.json \
+              --output benchmark-out/comparison.md
+            cat benchmark-out/comparison.md >> "$GITHUB_STEP_SUMMARY"
           fi
       - uses: actions/upload-artifact@v4
         if: always()
