@@ -15,7 +15,12 @@ def add_text(parent: ET.Element, tag: str, text: str, **attrs: str) -> ET.Elemen
     return node
 
 
-def add_attributes(measure: ET.Element, *, staves: int = 1, clefs: tuple[str, ...] = ("G",)) -> None:
+def add_attributes(
+    measure: ET.Element,
+    *,
+    staves: int = 1,
+    clefs: tuple[str, ...] = ("G",),
+) -> None:
     attrs = ET.SubElement(measure, "attributes")
     add_text(attrs, "divisions", str(DIVISIONS))
     key = ET.SubElement(attrs, "key")
