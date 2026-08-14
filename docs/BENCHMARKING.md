@@ -22,7 +22,13 @@ Install MuseScore and Sheet2MIDI PDF support, then run:
 python scripts/render_benchmark_corpus.py
 ```
 
-This renders each ground-truth score into a PNG under `benchmarks/corpus/images/`. The PNGs are generated artifacts and are not required to be committed.
+For the controlled crop experiment:
+
+```bash
+python scripts/render_benchmark_corpus.py --crop-content
+```
+
+The crop uses dark-pixel content bounds with configurable threshold and padding. It is intentionally simple: the goal is to measure whether removing large blank page margins materially changes OMR accuracy before adding sophisticated preprocessing.
 
 ## Evaluate one prediction
 
@@ -52,9 +58,16 @@ After rendering images and installing an OMR engine:
 sheet2midi benchmark benchmarks/corpus/manifest.json --engine homr
 ```
 
-or use `oemer` / `audiveris`.
+The GitHub Actions benchmark currently runs two homr variants using identical ground truth:
 
-The command writes `benchmark.json` plus one conversion output directory per case.
+1. full-page MuseScore render
+2. content-cropped render
+
+It then writes a side-by-side comparison so preprocessing changes are measured against the original baseline.
+
+## Baseline caveat
+
+The v1 synthetic fixtures are sparse single-measure systems rendered onto full pages. That makes them useful for deterministic regression tests but not representative of normal sheet scans. Do not interpret the first baseline as a final statement about homr quality.
 
 ## Why synthetic first?
 

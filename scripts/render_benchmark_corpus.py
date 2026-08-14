@@ -16,6 +16,24 @@ def find_musescore() -> str:
     raise SystemExit("MuseScore CLI not found on PATH")
 
 
+def crop_to_content(image, *, threshold: int = 245, padding: int = 80):
+    grayscale = image.convert("L")
+    mask = grayscale.point(lambda pixel: 255 if pixel < threshold else 0)
+    bbox = mask.getbbox()
+    if bbox is None:
+        return image
+
+    left, top, right, bottom = bbox
+    return image.crop(
+        (
+            max(0, left - padding),
+            max(0, top - padding),
+            min(image.width, right + padding),
+            min(image.height, bottom + padding),
+        )
+    )
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Render benchmark MusicXML into PNG images")
     parser.add_argument(
@@ -24,6 +42,13 @@ def main() -> None:
         nargs="?",
         default=Path("benchmarks/corpus/manifest.json"),
     )
+    parser.add_argument(
+        "--crop-content",
+        action="store_true",
+        help="Crop large page margins around rendered score content",
+    )
+    parser.add_argument("--crop-threshold", type=int, default=245)
+    parser.add_argument("--crop-padding", type=int, default=80)
     args = parser.parse_args()
 
     manifest = args.manifest.resolve()
@@ -46,11 +71,17 @@ def main() -> None:
         document = pdfium.PdfDocument(str(pdf))
         page = document[0]
         image = page.render(scale=3).to_pil().convert("RGB")
+        if args.crop_content:
+            image = crop_to_content(
+                image,
+                threshold=args.crop_threshold,
+                padding=args.crop_padding,
+            )
         image.save(destination)
         page.close()
         document.close()
         pdf.unlink(missing_ok=True)
-        print(destination)
+        print(f"{destination} ({image.width}x{image.height})")
 
 
 if __name__ == "__main__":
