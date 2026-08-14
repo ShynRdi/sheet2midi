@@ -1,17 +1,29 @@
+import importlib.util
 from pathlib import Path
+from types import ModuleType
 from xml.etree import ElementTree as ET
 
-from scripts.generate_benchmark_v2 import main
+SCRIPT = Path(__file__).resolve().parents[1] / "scripts/generate_benchmark_v2.py"
+
+
+def load_generator() -> ModuleType:
+    spec = importlib.util.spec_from_file_location("sheet2midi_benchmark_v2_generator", SCRIPT)
+    assert spec is not None
+    assert spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 def test_v2_generator_writes_five_multimeasure_scores(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
-    monkeypatch.setattr("scripts.generate_benchmark_v2.ROOT", tmp_path)
+    generator = load_generator()
+    monkeypatch.setattr(generator, "ROOT", tmp_path)
     manifest = tmp_path / "manifest.json"
     manifest.write_text('{"cases":[1,2,3,4,5]}', encoding="utf-8")
-    main()
+    generator.main()
     files = sorted((tmp_path / "ground_truth").glob("*.musicxml"))
     assert len(files) == 5
     for path in files:
@@ -28,12 +40,13 @@ def test_v2_piano_has_grand_staff_and_polyphonic_chord(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
-    monkeypatch.setattr("scripts.generate_benchmark_v2.ROOT", tmp_path)
+    generator = load_generator()
+    monkeypatch.setattr(generator, "ROOT", tmp_path)
     (tmp_path / "manifest.json").write_text(
         '{"cases":[1,2,3,4,5]}',
         encoding="utf-8",
     )
-    main()
+    generator.main()
     root = ET.parse(tmp_path / "ground_truth/piano-polyphonic.musicxml").getroot()
     assert root.find(".//staves").text == "2"
     clefs = {
