@@ -5,7 +5,6 @@ import argparse
 import json
 from pathlib import Path
 
-
 METRICS = ("note_f1", "onset_f1", "duration_accuracy")
 
 
@@ -38,7 +37,10 @@ def main() -> None:
     lines = [
         "# OMR preprocessing comparison",
         "",
-        "| Case | Full-page Note F1 | Cropped Note F1 | Δ | Full-page Onset F1 | Cropped Onset F1 | Δ |",
+        (
+            "| Case | Full-page Note F1 | Cropped Note F1 | Δ | "
+            "Full-page Onset F1 | Cropped Onset F1 | Δ |"
+        ),
         "|---|---:|---:|---:|---:|---:|---:|",
     ]
 
