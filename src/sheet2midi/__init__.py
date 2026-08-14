@@ -1,0 +1,3 @@
+"""Sheet2MIDI package."""
+
+__version__ = "0.1.0"
