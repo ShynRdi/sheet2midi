@@ -48,6 +48,54 @@ def load_manifest(path: Path) -> list[CorpusCase]:
     return cases
 
 
+def _mean(results: list[CaseResult], metric: str) -> float:
+    values = [getattr(item.metrics, metric) for item in results if item.metrics is not None]
+    return sum(values) / len(values) if values else 0.0
+
+
+def _write_markdown_report(summary: dict, output: Path) -> None:
+    lines = [
+        "# Sheet2MIDI OMR benchmark",
+        "",
+        "| Case | Category | Status | Note F1 | Onset F1 | Duration | Part | Staff |",
+        "|---|---|---:|---:|---:|---:|---:|---:|",
+    ]
+    for case in summary["cases"]:
+        metrics = case.get("metrics")
+        if metrics is None:
+            lines.append(
+                f"| {case['id']} | {case['category']} | {case['status']} | - | - | - | - | - |"
+            )
+            if case.get("error"):
+                lines.append("")
+                lines.append(f"> {case['id']}: `{case['error']}`")
+            continue
+        lines.append(
+            "| {id} | {category} | {status} | {note:.3f} | {onset:.3f} | "
+            "{duration:.3f} | {part:.3f} | {staff:.3f} |".format(
+                id=case["id"],
+                category=case["category"],
+                status=case["status"],
+                note=metrics["note_f1"],
+                onset=metrics["onset_f1"],
+                duration=metrics["duration_accuracy"],
+                part=metrics["part_accuracy"],
+                staff=metrics["staff_accuracy"],
+            )
+        )
+
+    lines.extend(
+        [
+            "",
+            f"Successful cases: **{summary['successful_cases']}/{summary['total_cases']}**",
+            f"Mean note F1: **{summary['mean_note_f1']:.3f}**",
+            f"Mean onset F1: **{summary['mean_onset_f1']:.3f}**",
+            f"Mean duration accuracy: **{summary['mean_duration_accuracy']:.3f}**",
+        ]
+    )
+    output.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
 def run_corpus(
     manifest: Path,
     output_dir: Path,
@@ -83,16 +131,11 @@ def run_corpus(
         "cases": [item.to_dict() for item in results],
         "successful_cases": len(successful),
         "total_cases": len(results),
-        "mean_note_f1": (
-            sum(item.metrics.note_f1 for item in successful) / len(successful)
-            if successful
-            else 0.0
-        ),
-        "mean_onset_f1": (
-            sum(item.metrics.onset_f1 for item in successful) / len(successful)
-            if successful
-            else 0.0
-        ),
+        "mean_note_f1": _mean(successful, "note_f1"),
+        "mean_onset_f1": _mean(successful, "onset_f1"),
+        "mean_duration_accuracy": _mean(successful, "duration_accuracy"),
     }
-    (output_dir / "benchmark.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
+    json_output = output_dir / "benchmark.json"
+    json_output.write_text(json.dumps(summary, indent=2), encoding="utf-8")
+    _write_markdown_report(summary, output_dir / "benchmark.md")
     return summary

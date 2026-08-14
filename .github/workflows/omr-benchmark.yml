@@ -2,37 +2,58 @@ name: OMR benchmark
 
 on:
   workflow_dispatch:
-    inputs:
-      engine:
-        description: OMR backend to benchmark
-        required: true
-        default: homr
-        type: choice
-        options:
-          - homr
-          - oemer
-          - audiveris
+  pull_request:
+    paths:
+      - '.github/workflows/omr-benchmark.yml'
+      - 'benchmarks/**'
+      - 'scripts/render_benchmark_corpus.py'
+      - 'src/sheet2midi/benchmark/**'
+      - 'src/sheet2midi/omr/**'
+      - 'src/sheet2midi/pipeline.py'
+
+permissions:
+  contents: read
 
 jobs:
-  benchmark:
+  homr-benchmark:
     runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      QT_QPA_PLATFORM: offscreen
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
-      - run: sudo apt-get update && sudo apt-get install -y musescore3
-      - run: pip install -e '.[dev,pdf]'
-      - name: Install selected Python OMR backend
-        if: ${{ inputs.engine == 'homr' || inputs.engine == 'oemer' }}
-        run: pip install ${{ inputs.engine }}
+          python-version: '3.11'
+          cache: pip
+      - name: Install MuseScore
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y musescore3
+      - name: Install Sheet2MIDI and homr
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e '.[dev,pdf]'
+          pip install homr
+      - name: Show backend status
+        run: sheet2midi backends
       - name: Render synthetic corpus
         run: python scripts/render_benchmark_corpus.py
-      - name: Run benchmark
-        if: ${{ inputs.engine != 'audiveris' }}
-        run: sheet2midi benchmark benchmarks/corpus/manifest.json --engine ${{ inputs.engine }} --output benchmark-out
+      - name: Run homr benchmark
+        run: |
+          sheet2midi benchmark benchmarks/corpus/manifest.json \
+            --engine homr \
+            --output benchmark-out
+      - name: Publish benchmark summary
+        if: always()
+        run: |
+          if [ -f benchmark-out/benchmark.md ]; then
+            cat benchmark-out/benchmark.md >> "$GITHUB_STEP_SUMMARY"
+          fi
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: benchmark-${{ inputs.engine }}
-          path: benchmark-out
+          name: homr-benchmark
+          path: |
+            benchmark-out
+            benchmarks/corpus/images
