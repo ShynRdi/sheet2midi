@@ -2,7 +2,6 @@ from pathlib import Path
 
 from sheet2midi.benchmark.metrics import evaluate_scores
 
-
 ROOT = Path(__file__).resolve().parents[1]
 PIANO = ROOT / "benchmarks/corpus/ground_truth/piano-grand.musicxml"
 
