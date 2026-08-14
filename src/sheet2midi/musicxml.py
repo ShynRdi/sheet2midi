@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import copy
 import zipfile
-from collections import defaultdict
 from pathlib import Path
 from xml.etree import ElementTree as ET
 

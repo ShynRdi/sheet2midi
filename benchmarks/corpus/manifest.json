@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "description": "Synthetic Sheet2MIDI recognition benchmark covering the first five target layouts.",
+  "cases": [
+    {"id": "piano-grand", "category": "piano-rh-lh", "ground_truth": "ground_truth/piano-grand.musicxml", "image": "images/piano-grand.png"},
+    {"id": "instrument-duet", "category": "duet", "ground_truth": "ground_truth/instrument-duet.musicxml", "image": "images/instrument-duet.png"},
+    {"id": "vocal-piano", "category": "vocal-piano", "ground_truth": "ground_truth/vocal-piano.musicxml", "image": "images/vocal-piano.png"},
+    {"id": "satb", "category": "satb", "ground_truth": "ground_truth/satb.musicxml", "image": "images/satb.png"},
+    {"id": "choir-piano", "category": "choir-piano", "ground_truth": "ground_truth/choir-piano.musicxml", "image": "images/choir-piano.png"}
+  ]
+}

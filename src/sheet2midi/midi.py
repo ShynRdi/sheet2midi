@@ -89,9 +89,12 @@ def _staff_name(part_name: str, staff: int, staff_count: int) -> str:
     return f"{part_name} - Staff {staff}"
 
 
-def _add_absolute_events(track: mido.MidiTrack, events: list[tuple[int, int, mido.Message]]) -> None:
+def _add_absolute_events(
+    track: mido.MidiTrack,
+    events: list[tuple[int, int, mido.Message]],
+) -> None:
     previous = 0
-    for tick, order, message in sorted(events, key=lambda item: (item[0], item[1])):
+    for tick, _order, message in sorted(events, key=lambda item: (item[0], item[1])):
         message.time = max(0, tick - previous)
         track.append(message)
         previous = tick
@@ -109,7 +112,9 @@ def _write_conductor(
     events: list[tuple[int, int, mido.Message]] = []
     for event in tempos:
         tick = round(event.start_quarters * TICKS_PER_BEAT)
-        events.append((tick, 0, mido.MetaMessage("set_tempo", tempo=mido.bpm2tempo(event.bpm))))
+        events.append(
+            (tick, 0, mido.MetaMessage("set_tempo", tempo=mido.bpm2tempo(event.bpm)))
+        )
     for event in signatures:
         tick = round(event.start_quarters * TICKS_PER_BEAT)
         events.append(
@@ -127,7 +132,9 @@ def _write_conductor(
         key_map = _MINOR_KEYS if event.mode.lower().startswith("min") else _MAJOR_KEYS
         if event.fifths in key_map:
             tick = round(event.start_quarters * TICKS_PER_BEAT)
-            events.append((tick, 2, mido.MetaMessage("key_signature", key=key_map[event.fifths])))
+            events.append(
+                (tick, 2, mido.MetaMessage("key_signature", key=key_map[event.fifths]))
+            )
     _add_absolute_events(track, events)
 
 
@@ -156,15 +163,26 @@ def render_midi(musicxml: Path, output: Path, track_mode: str = "staff") -> Path
         name = part_name if staff is None else _staff_name(part_name, staff, staff_count)
         track = mido.MidiTrack()
         midi.tracks.append(track)
-        track.append(mido.MetaMessage("track_name", name=name.encode("ascii", "replace").decode(), time=0))
-        track.append(mido.Message("program_change", program=_program_for(part_name), time=0))
+        safe_name = name.encode("ascii", "replace").decode()
+        track.append(mido.MetaMessage("track_name", name=safe_name, time=0))
+        track.append(
+            mido.Message("program_change", program=_program_for(part_name), time=0)
+        )
 
         events: list[tuple[int, int, mido.Message]] = []
         for note in group:
             start = round(note.start_quarters * TICKS_PER_BEAT)
             end = round((note.start_quarters + note.duration_quarters) * TICKS_PER_BEAT)
-            events.append((start, 1, mido.Message("note_on", note=note.pitch, velocity=note.velocity)))
-            events.append((end, 0, mido.Message("note_off", note=note.pitch, velocity=0)))
+            events.append(
+                (
+                    start,
+                    1,
+                    mido.Message("note_on", note=note.pitch, velocity=note.velocity),
+                )
+            )
+            events.append(
+                (end, 0, mido.Message("note_off", note=note.pitch, velocity=0))
+            )
         _add_absolute_events(track, events)
 
     output = Path(output)
