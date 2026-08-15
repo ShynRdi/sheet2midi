@@ -3,7 +3,7 @@ import json
 from pathlib import Path
 from types import ModuleType
 
-from PIL import Image
+from PIL import Image, ImageDraw
 
 SCRIPT = Path(__file__).resolve().parents[1] / "scripts/degrade_benchmark_images.py"
 
@@ -15,6 +15,12 @@ def load_script() -> ModuleType:
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+def _dark_bbox(image: Image.Image, threshold: int = 220) -> tuple[int, int, int, int] | None:
+    grayscale = image.convert("L")
+    mask = grayscale.point(lambda value: 255 if value < threshold else 0)
+    return mask.getbbox()
 
 
 def test_generated_variant_manifest_paths_resolve_from_manifest_directory(
@@ -59,3 +65,25 @@ def test_generated_variant_manifest_paths_resolve_from_manifest_directory(
         case = payload["cases"][0]
         assert (variant_manifest.parent / case["ground_truth"]).is_file()
         assert (variant_manifest.parent / case["image"]).is_file()
+
+
+def test_perspective_variant_preserves_score_width() -> None:
+    script = load_script()
+    image = Image.new("RGB", (1200, 800), "white")
+    draw = ImageDraw.Draw(image)
+    for y in range(180, 621, 55):
+        draw.line((120, y, 1080, y), fill="black", width=4)
+    draw.rectangle((140, 150, 1060, 650), outline="black", width=4)
+
+    clean_bbox = _dark_bbox(image)
+    transformed = script.degrade(image, "perspective")
+    transformed_bbox = _dark_bbox(transformed)
+
+    assert clean_bbox is not None
+    assert transformed_bbox is not None
+    clean_width = clean_bbox[2] - clean_bbox[0]
+    transformed_width = transformed_bbox[2] - transformed_bbox[0]
+
+    assert transformed_width >= clean_width * 0.75
+    assert transformed_width <= image.width
+    assert transformed.size == image.size
