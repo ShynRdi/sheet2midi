@@ -47,6 +47,11 @@ def degrade(image: Image.Image, variant: str) -> Image.Image:
     raise ValueError(variant)
 
 
+def _manifest_relative(path_from_root: Path) -> str:
+    """Return a path usable from corpus-v2/manifests/*.json."""
+    return (Path("..") / path_from_root).as_posix()
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Generate deterministic benchmark image degradations"
@@ -75,9 +80,12 @@ def main() -> None:
                 image = Image.open(jpg).convert("RGB")
                 jpg.unlink()
             image.save(destination)
+
             updated = dict(case)
-            updated["image"] = str(destination.relative_to(root))
+            updated["ground_truth"] = _manifest_relative(Path(case["ground_truth"]))
+            updated["image"] = _manifest_relative(destination.relative_to(root))
             variant_manifest["cases"].append(updated)
+
         manifest_out = root / "manifests" / f"{variant}.json"
         manifest_out.parent.mkdir(parents=True, exist_ok=True)
         manifest_out.write_text(
