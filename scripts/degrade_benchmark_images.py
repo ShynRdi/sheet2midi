@@ -10,6 +10,85 @@ from PIL import Image, ImageDraw, ImageFilter
 VARIANTS = ("rotate", "blur", "shadow", "perspective", "jpeg")
 
 
+def _solve_linear_system(matrix: list[list[float]], values: list[float]) -> list[float]:
+    """Solve a small dense linear system with Gaussian elimination."""
+    size = len(values)
+    augmented = [row[:] + [value] for row, value in zip(matrix, values, strict=True)]
+
+    for column in range(size):
+        pivot = max(range(column, size), key=lambda row: abs(augmented[row][column]))
+        if abs(augmented[pivot][column]) < 1e-12:
+            raise ValueError("Perspective transform is singular")
+        augmented[column], augmented[pivot] = augmented[pivot], augmented[column]
+
+        pivot_value = augmented[column][column]
+        augmented[column] = [value / pivot_value for value in augmented[column]]
+
+        for row in range(size):
+            if row == column:
+                continue
+            factor = augmented[row][column]
+            if factor == 0:
+                continue
+            augmented[row] = [
+                current - factor * pivot_current
+                for current, pivot_current in zip(
+                    augmented[row],
+                    augmented[column],
+                    strict=True,
+                )
+            ]
+
+    return [augmented[row][-1] for row in range(size)]
+
+
+def _perspective_coefficients(
+    destination: tuple[tuple[float, float], ...],
+    source: tuple[tuple[float, float], ...],
+) -> tuple[float, ...]:
+    """Return Pillow output-to-input perspective coefficients.
+
+    Pillow samples the source image for every output pixel, so the equations map
+    points in the desired destination quadrilateral back to source coordinates.
+    """
+    if len(destination) != 4 or len(source) != 4:
+        raise ValueError("Perspective transform requires four point pairs")
+
+    matrix: list[list[float]] = []
+    values: list[float] = []
+    for (x, y), (u, v) in zip(destination, source, strict=True):
+        matrix.append([x, y, 1.0, 0.0, 0.0, 0.0, -u * x, -u * y])
+        values.append(u)
+        matrix.append([0.0, 0.0, 0.0, x, y, 1.0, -v * x, -v * y])
+        values.append(v)
+    return tuple(_solve_linear_system(matrix, values))
+
+
+def _mild_perspective(image: Image.Image) -> Image.Image:
+    """Simulate a modest off-axis phone photo without collapsing the page."""
+    width, height = image.size
+    source = (
+        (0.0, 0.0),
+        (float(width - 1), 0.0),
+        (float(width - 1), float(height - 1)),
+        (0.0, float(height - 1)),
+    )
+    destination = (
+        (0.04 * width, 0.035 * height),
+        (0.965 * width, 0.005 * height),
+        (0.91 * width, 0.975 * height),
+        (0.075 * width, 0.995 * height),
+    )
+    coefficients = _perspective_coefficients(destination, source)
+    return image.transform(
+        image.size,
+        Image.Transform.PERSPECTIVE,
+        coefficients,
+        resample=Image.Resampling.BICUBIC,
+        fillcolor="white",
+    )
+
+
 def degrade(image: Image.Image, variant: str) -> Image.Image:
     image = image.convert("RGB")
     if variant == "rotate":
@@ -25,23 +104,7 @@ def degrade(image: Image.Image, variant: str) -> Image.Image:
             draw.line((x, 0, x, height), fill=(0, 0, 0, alpha))
         return Image.alpha_composite(image.convert("RGBA"), overlay).convert("RGB")
     if variant == "perspective":
-        width, height = image.size
-        return image.transform(
-            (width, height),
-            Image.Transform.QUAD,
-            (
-                35,
-                20,
-                width - 10,
-                0,
-                width - 40,
-                height - 15,
-                5,
-                height,
-            ),
-            resample=Image.Resampling.BICUBIC,
-            fillcolor="white",
-        )
+        return _mild_perspective(image)
     if variant == "jpeg":
         return image
     raise ValueError(variant)
