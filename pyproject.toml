@@ -25,7 +25,7 @@ dependencies = ["mido>=1.3,<2"]
 pdf = ["pypdfium2>=4.30,<5"]
 api = ["fastapi>=0.115,<1", "uvicorn>=0.30,<1", "python-multipart>=0.0.9"]
 benchmark = ["Pillow>=10,<13"]
-dev = ["pytest>=8,<9", "ruff>=0.8,<1", "build>=1.2,<2"]
+dev = ["pytest>=8,<9", "ruff>=0.8,<1", "build>=1.2,<2", "Pillow>=10,<13"]
 
 [project.scripts]
 sheet2midi = "sheet2midi.cli:main"
