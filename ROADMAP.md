@@ -12,12 +12,14 @@
 ## v0.2 — benchmark and correctness
 
 - [ ] curated public-domain benchmark set
-- [ ] pitch accuracy metric
-- [ ] onset/duration metrics
+- [x] pitch accuracy metric
+- [x] onset/duration metrics
 - [ ] measure exact-match metric
 - [ ] OMR backend comparison harness
 - [ ] confidence score per page / measure
-- [ ] regression corpus for piano, duet, vocal+piano, SATB, choir+piano
+- [x] regression corpus for piano, duet, vocal+piano, SATB, choir+piano
+- [x] generated multi-measure benchmark corpus
+- [x] deterministic robustness matrix for rotation/blur/shadow/perspective/JPEG
 
 ## v0.3 — richer MIDI performance
 

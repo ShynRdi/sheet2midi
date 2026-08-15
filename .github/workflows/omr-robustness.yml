@@ -1,0 +1,60 @@
+name: OMR robustness matrix
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  homr-robustness:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      QT_QPA_PLATFORM: offscreen
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+      - name: Install MuseScore
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y musescore3
+      - name: Install benchmark dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e '.[dev,pdf,benchmark]'
+          pip install homr
+      - name: Generate v2 ground truth
+        run: python scripts/generate_benchmark_v2.py
+      - name: Render clean v2 corpus
+        run: python scripts/render_benchmark_corpus.py benchmarks/corpus-v2/manifest.json
+      - name: Run clean benchmark
+        run: |
+          sheet2midi benchmark benchmarks/corpus-v2/manifest.json \
+            --engine homr --output robustness-out/clean
+      - name: Generate degraded inputs
+        run: python scripts/degrade_benchmark_images.py
+      - name: Run degraded matrix
+        run: |
+          for variant in rotate blur shadow perspective jpeg; do
+            sheet2midi benchmark "benchmarks/corpus-v2/manifests/${variant}.json" \
+              --engine homr --output "robustness-out/${variant}"
+          done
+      - name: Publish summary
+        if: always()
+        run: |
+          python scripts/summarize_robustness.py robustness-out \
+            --output robustness-out/summary.md
+          cat robustness-out/summary.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: homr-robustness-v2
+          path: |
+            robustness-out
+            benchmarks/corpus-v2/images
+            benchmarks/corpus-v2/ground_truth
+            benchmarks/corpus-v2/manifests

@@ -1,0 +1,11 @@
+{
+  "version": 2,
+  "description": "Generated multi-measure Sheet2MIDI benchmark covering realistic target layouts.",
+  "cases": [
+    {"id":"piano-polyphonic","category":"piano-rh-lh","ground_truth":"ground_truth/piano-polyphonic.musicxml","image":"images/clean/piano-polyphonic.png"},
+    {"id":"instrument-duet-v2","category":"duet","ground_truth":"ground_truth/instrument-duet-v2.musicxml","image":"images/clean/instrument-duet-v2.png"},
+    {"id":"vocal-piano-v2","category":"vocal-piano","ground_truth":"ground_truth/vocal-piano-v2.musicxml","image":"images/clean/vocal-piano-v2.png"},
+    {"id":"satb-v2","category":"satb","ground_truth":"ground_truth/satb-v2.musicxml","image":"images/clean/satb-v2.png"},
+    {"id":"choir-piano-v2","category":"choir-piano","ground_truth":"ground_truth/choir-piano-v2.musicxml","image":"images/clean/choir-piano-v2.png"}
+  ]
+}
