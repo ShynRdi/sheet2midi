@@ -102,6 +102,7 @@ def run_corpus(
     *,
     engine: str = "auto",
     track_mode: str = "staff",
+    preprocess: str = "none",
 ) -> dict:
     cases = load_manifest(manifest)
     output_dir = Path(output_dir)
@@ -120,6 +121,7 @@ def run_corpus(
                 output_dir / case.id,
                 engine=engine,
                 track_mode=track_mode,
+                preprocess=preprocess,
             )
             metrics = evaluate_scores(case.ground_truth, result.musicxml)
             results.append(CaseResult(case.id, case.category, "ok", metrics=metrics))

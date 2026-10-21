@@ -23,6 +23,12 @@ def build_parser() -> argparse.ArgumentParser:
         "--engine", choices=["auto", "homr", "oemer", "audiveris"], default="auto"
     )
     convert_parser.add_argument("--track-mode", choices=["staff", "part"], default="staff")
+    convert_parser.add_argument(
+        "--preprocess",
+        choices=["none", "deskew"],
+        default="none",
+        help="Optional image preprocessing before OMR",
+    )
 
     midi_parser = sub.add_parser("midi", help="Render existing MusicXML/MXL to MIDI")
     midi_parser.add_argument("source", type=Path)
@@ -45,6 +51,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--engine", choices=["auto", "homr", "oemer", "audiveris"], default="auto"
     )
     benchmark_parser.add_argument("--track-mode", choices=["staff", "part"], default="staff")
+    benchmark_parser.add_argument(
+        "--preprocess",
+        choices=["none", "deskew"],
+        default="none",
+    )
 
     sub.add_parser("backends", help="Show installed OMR backends")
     return parser
@@ -73,10 +84,17 @@ def main() -> None:
             args.output,
             engine=args.engine,
             track_mode=args.track_mode,
+            preprocess=args.preprocess,
         )
         print(json.dumps(result, indent=2))
     elif args.command == "convert":
-        result = convert(args.source, args.output, args.engine, args.track_mode)
+        result = convert(
+            args.source,
+            args.output,
+            args.engine,
+            args.track_mode,
+            preprocess=args.preprocess,
+        )
         print(
             json.dumps(
                 {

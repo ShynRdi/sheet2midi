@@ -26,11 +26,14 @@ def convert_sheet(
     file: UploadFile = File(...),
     engine: str = Form("auto"),
     track_mode: str = Form("staff"),
+    preprocess: str = Form("none"),
 ) -> FileResponse:
     if engine not in {"auto", "homr", "oemer", "audiveris"}:
         raise HTTPException(400, "Unsupported OMR engine")
     if track_mode not in {"staff", "part"}:
         raise HTTPException(400, "track_mode must be staff or part")
+    if preprocess not in {"none", "deskew"}:
+        raise HTTPException(400, "preprocess must be none or deskew")
 
     temp = Path(tempfile.mkdtemp(prefix="sheet2midi-api-"))
     background_tasks.add_task(shutil.rmtree, temp, True)
@@ -40,7 +43,13 @@ def convert_sheet(
         shutil.copyfileobj(file.file, destination)
 
     try:
-        result = convert(source, temp / "out", engine=engine, track_mode=track_mode)
+        result = convert(
+            source,
+            temp / "out",
+            engine=engine,
+            track_mode=track_mode,
+            preprocess=preprocess,
+        )
     except Exception as exc:
         shutil.rmtree(temp, ignore_errors=True)
         raise HTTPException(422, str(exc)) from exc
