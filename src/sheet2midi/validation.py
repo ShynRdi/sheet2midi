@@ -34,6 +34,8 @@ def validate_musicxml(path: Path, tolerance_quarters: float = 0.01) -> Validatio
         for measure_index, measure in enumerate(_children(part, "measure")):
             cursor = 0
             maximum = 0
+            staff_maximum: dict[int, int] = {}
+
             for attributes in _children(measure, "attributes"):
                 div_text = _text(attributes, "divisions")
                 if div_text:
@@ -51,21 +53,38 @@ def validate_musicxml(path: Path, tolerance_quarters: float = 0.01) -> Validatio
                 elif kind == "forward":
                     cursor += int(_text(item, "duration", "0") or "0")
                     maximum = max(maximum, cursor)
+                    staff_text = _text(item, "staff")
+                    if staff_text:
+                        staff = int(staff_text)
+                        staff_maximum[staff] = max(
+                            staff_maximum.get(staff, 0),
+                            cursor,
+                        )
                 elif kind == "note":
                     duration = int(_text(item, "duration", "0") or "0")
                     if _child(item, "chord") is None:
                         last_note_start = cursor
                         cursor += duration
-                        maximum = max(maximum, cursor)
+                        note_end = cursor
                     else:
-                        maximum = max(maximum, last_note_start + duration)
+                        note_end = last_note_start + duration
+                    maximum = max(maximum, note_end)
+
+                    staff = int(_text(item, "staff", "1") or "1")
+                    staff_maximum[staff] = max(
+                        staff_maximum.get(staff, 0),
+                        note_end,
+                    )
 
             actual = maximum / divisions
             expected = beats * (4 / beat_type)
             number = measure.attrib.get("number", str(measure_index + 1))
             implicit = measure.attrib.get("implicit") == "yes"
             is_first = measure_index == 0
-            if not implicit and not is_first and abs(actual - expected) > tolerance_quarters:
+            if implicit or is_first:
+                continue
+
+            if abs(actual - expected) > tolerance_quarters:
                 report.warnings.append(
                     ValidationWarning(
                         "measure_duration_mismatch",
@@ -74,4 +93,21 @@ def validate_musicxml(path: Path, tolerance_quarters: float = 0.01) -> Validatio
                         measure=number,
                     )
                 )
+
+            if len(staff_maximum) > 1:
+                for staff, maximum_for_staff in sorted(staff_maximum.items()):
+                    staff_actual = maximum_for_staff / divisions
+                    if abs(staff_actual - expected) <= tolerance_quarters:
+                        continue
+                    report.warnings.append(
+                        ValidationWarning(
+                            "staff_duration_mismatch",
+                            (
+                                f"Staff {staff} duration is {staff_actual:g} quarter notes; "
+                                f"expected {expected:g}"
+                            ),
+                            part_id=part_id,
+                            measure=number,
+                        )
+                    )
     return report
