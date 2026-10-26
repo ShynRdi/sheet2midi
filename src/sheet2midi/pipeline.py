@@ -6,7 +6,7 @@ from pathlib import Path
 
 from .midi import render_midi
 from .models import ConversionResult
-from .musicxml import merge_scores
+from .musicxml import merge_scores, normalize_musicxml
 from .omr import get_backend
 from .preprocess import prepare_pages
 from .validation import validate_musicxml
@@ -17,6 +17,7 @@ def convert(
     output_dir: Path,
     engine: str = "auto",
     track_mode: str = "staff",
+    keep_intermediates: bool = False,
 ) -> ConversionResult:
     source = Path(source)
     if not source.exists():
@@ -31,7 +32,14 @@ def convert(
         recognized: list[Path] = []
         for index, page in enumerate(pages, start=1):
             page_output = work / "omr" / f"page-{index:04d}"
-            recognized.append(backend.recognize(page, page_output))
+            recognized_page = backend.recognize(page, page_output)
+            recognized.append(recognized_page)
+
+            if keep_intermediates:
+                normalize_musicxml(
+                    recognized_page,
+                    output_dir / "intermediates" / f"page-{index:04d}.musicxml",
+                )
 
         musicxml = merge_scores(recognized, output_dir / "score.musicxml")
 
