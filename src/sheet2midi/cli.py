@@ -23,6 +23,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--engine", choices=["auto", "homr", "oemer", "audiveris"], default="auto"
     )
     convert_parser.add_argument("--track-mode", choices=["staff", "part"], default="staff")
+    convert_parser.add_argument(
+        "--keep-intermediates",
+        action="store_true",
+        help="Keep per-page OMR MusicXML outputs for debugging",
+    )
 
     midi_parser = sub.add_parser("midi", help="Render existing MusicXML/MXL to MIDI")
     midi_parser.add_argument("source", type=Path)
@@ -76,7 +81,13 @@ def main() -> None:
         )
         print(json.dumps(result, indent=2))
     elif args.command == "convert":
-        result = convert(args.source, args.output, args.engine, args.track_mode)
+        result = convert(
+            args.source,
+            args.output,
+            args.engine,
+            args.track_mode,
+            keep_intermediates=args.keep_intermediates,
+        )
         print(
             json.dumps(
                 {
