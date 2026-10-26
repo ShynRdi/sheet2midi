@@ -34,8 +34,7 @@ def validate_musicxml(path: Path, tolerance_quarters: float = 0.01) -> Validatio
         for measure_index, measure in enumerate(_children(part, "measure")):
             cursor = 0
             maximum = 0
-            attributes = _child(measure, "attributes")
-            if attributes is not None:
+            for attributes in _children(measure, "attributes"):
                 div_text = _text(attributes, "divisions")
                 if div_text:
                     divisions = max(1, int(div_text))
