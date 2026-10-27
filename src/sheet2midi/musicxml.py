@@ -253,3 +253,169 @@ def parse_events(path: Path) -> tuple[
     if not tempos:
         tempos.append(TempoEvent(0.0, 120.0))
     return notes, sorted(tempos, key=lambda x: x.start_quarters), signatures, keys
+
+
+
+def inspect_measure_timelines(
+    path: Path,
+    measures: list[str],
+    part_id: str | None = None,
+) -> dict:
+    if not measures:
+        raise ValueError("At least one measure number is required")
+
+    root = parse_root(path)
+    if _local(root.tag) != "score-partwise":
+        raise ValueError("Only score-partwise MusicXML is currently supported")
+
+    requested = set(measures)
+    results: list[dict] = []
+
+    for part in _children(root, "part"):
+        current_part_id = part.attrib.get("id", "part")
+        if part_id is not None and current_part_id != part_id:
+            continue
+
+        divisions = 1
+        beats = 4
+        beat_type = 4
+
+        for measure_index, measure in enumerate(_children(part, "measure"), start=1):
+            number = measure.attrib.get("number", str(measure_index))
+            cursor = 0
+            maximum = 0
+            last_note_start = 0
+            events: list[dict] = []
+
+            for item_index, item in enumerate(measure):
+                kind = _local(item.tag)
+
+                if kind == "attributes":
+                    div_text = _text(item, "divisions")
+                    if div_text:
+                        divisions = max(1, int(div_text))
+                    time = _child(item, "time")
+                    if time is not None:
+                        beats = int(_text(time, "beats", "4") or "4")
+                        beat_type = int(_text(time, "beat-type", "4") or "4")
+                    if number in requested:
+                        events.append(
+                            {
+                                "index": item_index,
+                                "kind": "attributes",
+                                "divisions": divisions,
+                                "time": f"{beats}/{beat_type}",
+                                "cursor_before_quarters": cursor / divisions,
+                                "cursor_after_quarters": cursor / divisions,
+                            }
+                        )
+                    continue
+
+                if kind == "backup":
+                    duration = int(_text(item, "duration", "0") or "0")
+                    before = cursor
+                    cursor -= duration
+                    if number in requested:
+                        events.append(
+                            {
+                                "index": item_index,
+                                "kind": "backup",
+                                "duration_quarters": duration / divisions,
+                                "cursor_before_quarters": before / divisions,
+                                "cursor_after_quarters": cursor / divisions,
+                            }
+                        )
+                    continue
+
+                if kind == "forward":
+                    duration = int(_text(item, "duration", "0") or "0")
+                    before = cursor
+                    cursor += duration
+                    maximum = max(maximum, cursor)
+                    if number in requested:
+                        events.append(
+                            {
+                                "index": item_index,
+                                "kind": "forward",
+                                "duration_quarters": duration / divisions,
+                                "staff": _text(item, "staff"),
+                                "voice": _text(item, "voice"),
+                                "cursor_before_quarters": before / divisions,
+                                "cursor_after_quarters": cursor / divisions,
+                            }
+                        )
+                    continue
+
+                if kind != "note":
+                    continue
+
+                duration = int(_text(item, "duration", "0") or "0")
+                is_chord = _child(item, "chord") is not None
+                start = last_note_start if is_chord else cursor
+                if not is_chord:
+                    last_note_start = start
+                    cursor += duration
+                end = start + duration
+                maximum = max(maximum, end)
+
+                if number in requested:
+                    pitch = _child(item, "pitch")
+                    pitch_name = None
+                    if pitch is not None:
+                        step = _text(pitch, "step")
+                        octave = _text(pitch, "octave")
+                        alter = _text(pitch, "alter")
+                        if step and octave:
+                            accidental = ""
+                            if alter == "1":
+                                accidental = "#"
+                            elif alter == "-1":
+                                accidental = "b"
+                            pitch_name = f"{step}{accidental}{octave}"
+
+                    events.append(
+                        {
+                            "index": item_index,
+                            "kind": "note",
+                            "staff": int(_text(item, "staff", "1") or "1"),
+                            "voice": _text(item, "voice", "1") or "1",
+                            "pitch": pitch_name,
+                            "rest": _child(item, "rest") is not None,
+                            "chord": is_chord,
+                            "duration_quarters": duration / divisions,
+                            "start_quarters": start / divisions,
+                            "end_quarters": end / divisions,
+                            "cursor_after_quarters": cursor / divisions,
+                        }
+                    )
+
+            if number in requested:
+                results.append(
+                    {
+                        "part_id": current_part_id,
+                        "measure": number,
+                        "divisions": divisions,
+                        "time_signature": f"{beats}/{beat_type}",
+                        "expected_quarters": beats * (4 / beat_type),
+                        "maximum_quarters": maximum / divisions,
+                        "final_cursor_quarters": cursor / divisions,
+                        "events": events,
+                    }
+                )
+
+    found = {(item["part_id"], item["measure"]) for item in results}
+    missing = []
+    for measure in measures:
+        if part_id is None:
+            if not any(found_measure == measure for _, found_measure in found):
+                missing.append(measure)
+        elif (part_id, measure) not in found:
+            missing.append(measure)
+
+    return {
+        "source": str(path),
+        "requested_measures": measures,
+        "part_id": part_id,
+        "missing_measures": missing,
+        "measures": results,
+    }
