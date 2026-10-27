@@ -2,7 +2,6 @@ from pathlib import Path
 
 from sheet2midi.validation import validate_musicxml
 
-
 ALIGNMENT_SCORE = """<?xml version="1.0" encoding="UTF-8"?>
 <score-partwise version="4.0">
   <part-list>
