@@ -4,8 +4,64 @@ import tempfile
 from dataclasses import asdict
 from pathlib import Path
 
-from .models import ValidationReport, ValidationWarning
+from .models import MeasureDiagnostic, ValidationReport, ValidationWarning
 from .musicxml import _child, _children, _local, _text, merge_scores, parse_root
+
+
+def _measure_diagnostic(
+    *,
+    part_id: str,
+    number: str,
+    actual: float,
+    expected: float,
+    staff_durations: dict[int, float],
+    note_count: int,
+    time_modification_count: int,
+    tuplet_notation_count: int,
+    tolerance_quarters: float,
+) -> MeasureDiagnostic | None:
+    if abs(actual - expected) <= tolerance_quarters:
+        return None
+
+    reasons: list[str] = []
+    classification = "strict_meter_mismatch"
+
+    if len(staff_durations) > 1:
+        values = list(staff_durations.values())
+        if max(values) - min(values) > tolerance_quarters:
+            classification = "possible_staff_alignment_error"
+            reasons.append("staff durations diverge within the measure")
+
+    has_tuplet_metadata = time_modification_count > 0 or tuplet_notation_count > 0
+    severely_overfull = actual >= expected * 2
+    dense_passage = note_count >= 12
+
+    if classification != "possible_staff_alignment_error" and (
+        has_tuplet_metadata or (severely_overfull and dense_passage)
+    ):
+        classification = "possible_irregular_passage"
+        if has_tuplet_metadata:
+            reasons.append("MusicXML contains tuplet or time-modification metadata")
+        if severely_overfull and dense_passage:
+            reasons.append("measure is densely notated and at least twice the expected duration")
+
+    if not reasons:
+        reasons.append("measure duration differs from the active time signature")
+
+    return MeasureDiagnostic(
+        part_id=part_id,
+        measure=number,
+        classification=classification,
+        actual_quarters=actual,
+        expected_quarters=expected,
+        staff_durations={
+            str(staff): duration for staff, duration in sorted(staff_durations.items())
+        },
+        note_count=note_count,
+        time_modification_count=time_modification_count,
+        tuplet_notation_count=tuplet_notation_count,
+        reasons=reasons,
+    )
 
 
 def validate_musicxml(path: Path, tolerance_quarters: float = 0.01) -> ValidationReport:
@@ -37,6 +93,9 @@ def validate_musicxml(path: Path, tolerance_quarters: float = 0.01) -> Validatio
             cursor = 0
             maximum = 0
             staff_maximum: dict[int, int] = {}
+            note_count = 0
+            time_modification_count = 0
+            tuplet_notation_count = 0
 
             for attributes in _children(measure, "attributes"):
                 div_text = _text(attributes, "divisions")
@@ -63,6 +122,13 @@ def validate_musicxml(path: Path, tolerance_quarters: float = 0.01) -> Validatio
                             cursor,
                         )
                 elif kind == "note":
+                    note_count += 1
+                    if _child(item, "time-modification") is not None:
+                        time_modification_count += 1
+                    notations = _child(item, "notations")
+                    if notations is not None:
+                        tuplet_notation_count += len(_children(notations, "tuplet"))
+
                     duration = int(_text(item, "duration", "0") or "0")
                     if _child(item, "chord") is None:
                         last_note_start = cursor
@@ -96,9 +162,13 @@ def validate_musicxml(path: Path, tolerance_quarters: float = 0.01) -> Validatio
                     )
                 )
 
+            staff_durations = {
+                staff: maximum_for_staff / divisions
+                for staff, maximum_for_staff in staff_maximum.items()
+            }
+
             if len(staff_maximum) > 1:
-                for staff, maximum_for_staff in sorted(staff_maximum.items()):
-                    staff_actual = maximum_for_staff / divisions
+                for staff, staff_actual in sorted(staff_durations.items()):
                     if abs(staff_actual - expected) <= tolerance_quarters:
                         continue
                     report.warnings.append(
@@ -112,6 +182,21 @@ def validate_musicxml(path: Path, tolerance_quarters: float = 0.01) -> Validatio
                             measure=number,
                         )
                     )
+
+            diagnostic = _measure_diagnostic(
+                part_id=part_id,
+                number=number,
+                actual=actual,
+                expected=expected,
+                staff_durations=staff_durations,
+                note_count=note_count,
+                time_modification_count=time_modification_count,
+                tuplet_notation_count=tuplet_notation_count,
+                tolerance_quarters=tolerance_quarters,
+            )
+            if diagnostic is not None:
+                report.diagnostics.append(diagnostic)
+
     return report
 
 
@@ -157,6 +242,20 @@ def validate_musicxml_pages(
                     break
         warnings.append(payload)
 
+    diagnostics: list[dict] = []
+    for diagnostic in report.diagnostics:
+        payload = asdict(diagnostic)
+        payload["page"] = None
+        payload["page_measure"] = None
+        if diagnostic.measure.isdigit():
+            global_measure = int(diagnostic.measure)
+            for start, end, page_index in boundaries:
+                if start <= global_measure <= end:
+                    payload["page"] = page_index
+                    payload["page_measure"] = str(global_measure - start + 1)
+                    break
+        diagnostics.append(payload)
+
     pages = [
         {
             "page": index,
@@ -174,4 +273,6 @@ def validate_musicxml_pages(
         "pages": pages,
         "warnings": warnings,
         "warning_count": len(warnings),
+        "diagnostics": diagnostics,
+        "diagnostic_count": len(diagnostics),
     }
