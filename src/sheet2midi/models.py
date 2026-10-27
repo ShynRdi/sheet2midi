@@ -45,14 +45,30 @@ class ValidationWarning:
 
 
 @dataclass
+class MeasureDiagnostic:
+    part_id: str
+    measure: str
+    classification: str
+    actual_quarters: float
+    expected_quarters: float
+    staff_durations: dict[str, float] = field(default_factory=dict)
+    note_count: int = 0
+    time_modification_count: int = 0
+    tuplet_notation_count: int = 0
+    reasons: list[str] = field(default_factory=list)
+
+
+@dataclass
 class ValidationReport:
     valid_xml: bool = True
     score_type: str | None = None
     warnings: list[ValidationWarning] = field(default_factory=list)
+    diagnostics: list[MeasureDiagnostic] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         payload = asdict(self)
         payload["warning_count"] = len(self.warnings)
+        payload["diagnostic_count"] = len(self.diagnostics)
         return payload
 
 
