@@ -34,6 +34,11 @@ def build_parser() -> argparse.ArgumentParser:
     midi_parser.add_argument("source", type=Path)
     midi_parser.add_argument("--output", "-o", type=Path, default=Path("score.mid"))
     midi_parser.add_argument("--track-mode", choices=["staff", "part"], default="staff")
+    midi_parser.add_argument(
+        "--repair-staff-serialization",
+        action="store_true",
+        help="Experimentally repair only measures classified as staff serialization errors",
+    )
 
     validate_parser = sub.add_parser("validate", help="Validate MusicXML structure")
     validate_parser.add_argument("source", type=Path)
@@ -90,7 +95,12 @@ def main() -> None:
             )
         )
     elif args.command == "midi":
-        output = render_midi(args.source, args.output, args.track_mode)
+        output = render_midi(
+            args.source,
+            args.output,
+            args.track_mode,
+            repair_staff_serialization=args.repair_staff_serialization,
+        )
         print(output)
     elif args.command == "evaluate":
         result = evaluate_scores(
