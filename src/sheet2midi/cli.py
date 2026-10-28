@@ -7,6 +7,7 @@ from pathlib import Path
 from .benchmark.corpus import run_corpus
 from .benchmark.metrics import evaluate_scores
 from .midi import render_midi
+from .musicxml import inspect_measure_timelines
 from .omr import backend_status
 from .pipeline import convert
 from .validation import validate_musicxml, validate_musicxml_pages
@@ -43,6 +44,14 @@ def build_parser() -> argparse.ArgumentParser:
     )
     validate_pages_parser.add_argument("sources", nargs="+", type=Path)
 
+    inspect_parser = sub.add_parser(
+        "inspect-measures",
+        help="Inspect MusicXML cursor, backup, voice, and staff timelines",
+    )
+    inspect_parser.add_argument("source", type=Path)
+    inspect_parser.add_argument("measures", nargs="+")
+    inspect_parser.add_argument("--part-id")
+
     evaluate_parser = sub.add_parser("evaluate", help="Compare predicted MusicXML to ground truth")
     evaluate_parser.add_argument("reference", type=Path)
     evaluate_parser.add_argument("prediction", type=Path)
@@ -69,6 +78,17 @@ def main() -> None:
         print(json.dumps(validate_musicxml(args.source).to_dict(), indent=2))
     elif args.command == "validate-pages":
         print(json.dumps(validate_musicxml_pages(args.sources), indent=2))
+    elif args.command == "inspect-measures":
+        print(
+            json.dumps(
+                inspect_measure_timelines(
+                    args.source,
+                    args.measures,
+                    part_id=args.part_id,
+                ),
+                indent=2,
+            )
+        )
     elif args.command == "midi":
         output = render_midi(args.source, args.output, args.track_mode)
         print(output)
