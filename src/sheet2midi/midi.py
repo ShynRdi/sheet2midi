@@ -7,6 +7,7 @@ import mido
 
 from .models import KeySignatureEvent, NoteEvent, TempoEvent, TimeSignatureEvent
 from .musicxml import parse_events
+from .validation import validate_musicxml
 
 TICKS_PER_BEAT = 480
 
@@ -138,11 +139,28 @@ def _write_conductor(
     _add_absolute_events(track, events)
 
 
-def render_midi(musicxml: Path, output: Path, track_mode: str = "staff") -> Path:
+def render_midi(
+    musicxml: Path,
+    output: Path,
+    track_mode: str = "staff",
+    repair_staff_serialization: bool = False,
+) -> Path:
     if track_mode not in {"staff", "part"}:
         raise ValueError("track_mode must be 'staff' or 'part'")
 
-    notes, tempos, signatures, keys = parse_events(musicxml)
+    repair_measures: set[tuple[str, str]] = set()
+    if repair_staff_serialization:
+        report = validate_musicxml(musicxml)
+        repair_measures = {
+            (diagnostic.part_id, diagnostic.measure)
+            for diagnostic in report.diagnostics
+            if diagnostic.classification == "possible_staff_serialization_error"
+        }
+
+    notes, tempos, signatures, keys = parse_events(
+        musicxml,
+        repair_serialized_measures=repair_measures,
+    )
     midi = mido.MidiFile(type=1, ticks_per_beat=TICKS_PER_BEAT)
     _write_conductor(midi, tempos, signatures, keys)
 

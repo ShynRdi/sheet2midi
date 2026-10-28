@@ -114,12 +114,17 @@ def pitch_to_midi(note: ET.Element, transpose: int = 0) -> int | None:
     return max(0, min(127, midi))
 
 
-def parse_events(path: Path) -> tuple[
+def parse_events(
+    path: Path,
+    repair_serialized_measures: set[tuple[str, str]] | None = None,
+) -> tuple[
     list[NoteEvent], list[TempoEvent], list[TimeSignatureEvent], list[KeySignatureEvent]
 ]:
     root = parse_root(path)
     if _local(root.tag) != "score-partwise":
         raise ValueError("Only score-partwise MusicXML is currently supported")
+
+    repair_serialized_measures = repair_serialized_measures or set()
 
     part_names: dict[str, str] = {}
     part_list = _child(root, "part-list")
@@ -145,9 +150,16 @@ def parse_events(path: Path) -> tuple[
         open_ties: dict[tuple[int, str, int], NoteEvent] = {}
 
         for measure in _children(part, "measure"):
+            measure_number = measure.attrib.get("number", "")
+            repair_serialized = (
+                part_id,
+                measure_number,
+            ) in repair_serialized_measures
             cursor_div = 0
             max_div = 0
             last_note_start = 0
+            stream_cursors: dict[tuple[int, str], int] = {}
+            stream_last_note_start: dict[tuple[int, str], int] = {}
 
             for item in measure:
                 kind = _local(item.tag)
@@ -198,14 +210,29 @@ def parse_events(path: Path) -> tuple[
                 elif kind == "note":
                     duration_div = int(_text(item, "duration", "0") or "0")
                     is_chord = _child(item, "chord") is not None
-                    start_div = last_note_start if is_chord else cursor_div
-                    if not is_chord:
-                        last_note_start = start_div
+                    staff = int(_text(item, "staff", "1") or "1")
+                    voice = _text(item, "voice", "1") or "1"
+
+                    if repair_serialized:
+                        stream_key = (staff, voice)
+                        stream_cursor = stream_cursors.get(stream_key, 0)
+                        if is_chord:
+                            start_div = stream_last_note_start.get(
+                                stream_key,
+                                stream_cursor,
+                            )
+                        else:
+                            start_div = stream_cursor
+                            stream_last_note_start[stream_key] = start_div
+                            stream_cursors[stream_key] = start_div + duration_div
+                        max_div = max(max_div, start_div + duration_div)
+                    else:
+                        start_div = last_note_start if is_chord else cursor_div
+                        if not is_chord:
+                            last_note_start = start_div
 
                     pitch = pitch_to_midi(item, transpose)
                     if pitch is not None and duration_div > 0:
-                        staff = int(_text(item, "staff", "1") or "1")
-                        voice = _text(item, "voice", "1") or "1"
                         start = absolute_quarters + (start_div / divisions)
                         duration = duration_div / divisions
                         tie_types = {
@@ -242,7 +269,7 @@ def parse_events(path: Path) -> tuple[
                         else:
                             notes.append(event)
 
-                    if not is_chord:
+                    if not repair_serialized and not is_chord:
                         cursor_div += duration_div
                         max_div = max(max_div, cursor_div)
 
