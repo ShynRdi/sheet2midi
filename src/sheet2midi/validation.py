@@ -14,8 +14,12 @@ def _measure_diagnostic(
     number: str,
     actual: float,
     expected: float,
-    staff_durations: dict[int, float],
+    staff_end_quarters: dict[int, float],
     note_count: int,
+    backup_count: int,
+    forward_count: int,
+    staff_transition_count: int,
+    voice_transition_count: int,
     time_modification_count: int,
     tuplet_notation_count: int,
     tolerance_quarters: float,
@@ -26,24 +30,27 @@ def _measure_diagnostic(
     reasons: list[str] = []
     classification = "strict_meter_mismatch"
 
-    if len(staff_durations) > 1:
-        values = list(staff_durations.values())
-        if max(values) - min(values) > tolerance_quarters:
-            classification = "possible_staff_alignment_error"
-            reasons.append("staff durations diverge within the measure")
-
+    has_multiple_staves = len(staff_end_quarters) > 1
     has_tuplet_metadata = time_modification_count > 0 or tuplet_notation_count > 0
     severely_overfull = actual >= expected * 2
     dense_passage = note_count >= 12
 
-    if classification != "possible_staff_alignment_error" and (
-        has_tuplet_metadata or (severely_overfull and dense_passage)
-    ):
+    if has_multiple_staves and backup_count == 0 and staff_transition_count > 0:
+        classification = "possible_staff_serialization_error"
+        reasons.append(
+            "multiple staves are serialized on one cursor without any backup"
+        )
+    elif has_tuplet_metadata or (severely_overfull and dense_passage):
         classification = "possible_irregular_passage"
         if has_tuplet_metadata:
             reasons.append("MusicXML contains tuplet or time-modification metadata")
         if severely_overfull and dense_passage:
             reasons.append("measure is densely notated and at least twice the expected duration")
+    elif has_multiple_staves:
+        values = list(staff_end_quarters.values())
+        if max(values) - min(values) > tolerance_quarters:
+            classification = "possible_staff_alignment_error"
+            reasons.append("staff end positions diverge within the measure")
 
     if not reasons:
         reasons.append("measure duration differs from the active time signature")
@@ -54,10 +61,14 @@ def _measure_diagnostic(
         classification=classification,
         actual_quarters=actual,
         expected_quarters=expected,
-        staff_durations={
-            str(staff): duration for staff, duration in sorted(staff_durations.items())
+        staff_end_quarters={
+            str(staff): end for staff, end in sorted(staff_end_quarters.items())
         },
         note_count=note_count,
+        backup_count=backup_count,
+        forward_count=forward_count,
+        staff_transition_count=staff_transition_count,
+        voice_transition_count=voice_transition_count,
         time_modification_count=time_modification_count,
         tuplet_notation_count=tuplet_notation_count,
         reasons=reasons,
@@ -94,6 +105,12 @@ def validate_musicxml(path: Path, tolerance_quarters: float = 0.01) -> Validatio
             maximum = 0
             staff_maximum: dict[int, int] = {}
             note_count = 0
+            backup_count = 0
+            forward_count = 0
+            staff_transition_count = 0
+            voice_transition_count = 0
+            previous_staff: int | None = None
+            previous_voice: str | None = None
             time_modification_count = 0
             tuplet_notation_count = 0
 
@@ -110,8 +127,10 @@ def validate_musicxml(path: Path, tolerance_quarters: float = 0.01) -> Validatio
             for item in measure:
                 kind = _local(item.tag)
                 if kind == "backup":
+                    backup_count += 1
                     cursor -= int(_text(item, "duration", "0") or "0")
                 elif kind == "forward":
+                    forward_count += 1
                     cursor += int(_text(item, "duration", "0") or "0")
                     maximum = max(maximum, cursor)
                     staff_text = _text(item, "staff")
@@ -139,6 +158,13 @@ def validate_musicxml(path: Path, tolerance_quarters: float = 0.01) -> Validatio
                     maximum = max(maximum, note_end)
 
                     staff = int(_text(item, "staff", "1") or "1")
+                    voice = _text(item, "voice", "1") or "1"
+                    if previous_staff is not None and staff != previous_staff:
+                        staff_transition_count += 1
+                    if previous_voice is not None and voice != previous_voice:
+                        voice_transition_count += 1
+                    previous_staff = staff
+                    previous_voice = voice
                     staff_maximum[staff] = max(
                         staff_maximum.get(staff, 0),
                         note_end,
@@ -162,13 +188,13 @@ def validate_musicxml(path: Path, tolerance_quarters: float = 0.01) -> Validatio
                     )
                 )
 
-            staff_durations = {
+            staff_end_quarters = {
                 staff: maximum_for_staff / divisions
                 for staff, maximum_for_staff in staff_maximum.items()
             }
 
             if len(staff_maximum) > 1:
-                for staff, staff_actual in sorted(staff_durations.items()):
+                for staff, staff_actual in sorted(staff_end_quarters.items()):
                     if abs(staff_actual - expected) <= tolerance_quarters:
                         continue
                     report.warnings.append(
@@ -188,8 +214,12 @@ def validate_musicxml(path: Path, tolerance_quarters: float = 0.01) -> Validatio
                 number=number,
                 actual=actual,
                 expected=expected,
-                staff_durations=staff_durations,
+                staff_end_quarters=staff_end_quarters,
                 note_count=note_count,
+                backup_count=backup_count,
+                forward_count=forward_count,
+                staff_transition_count=staff_transition_count,
+                voice_transition_count=voice_transition_count,
                 time_modification_count=time_modification_count,
                 tuplet_notation_count=tuplet_notation_count,
                 tolerance_quarters=tolerance_quarters,
