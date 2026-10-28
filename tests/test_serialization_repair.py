@@ -70,10 +70,10 @@ def test_serialization_repair_uses_independent_staff_voice_timelines(
     normal_by_pitch = {note.pitch: note.start_quarters for note in normal_measure_two}
     repaired_by_pitch = {note.pitch: note.start_quarters for note in repaired_measure_two}
 
-    assert normal_by_pitch[62] == 3.0
-    assert normal_by_pitch[62 + 12] == 5.0
-    assert normal_by_pitch[64] == 7.0
+    assert normal_by_pitch[50] == 3.0
+    assert normal_by_pitch[62] == 5.0
+    assert normal_by_pitch[52] == 7.0
 
+    assert repaired_by_pitch[50] == 3.0
     assert repaired_by_pitch[62] == 3.0
-    assert repaired_by_pitch[62 + 12] == 3.0
-    assert repaired_by_pitch[64] == 5.0
+    assert repaired_by_pitch[52] == 5.0
