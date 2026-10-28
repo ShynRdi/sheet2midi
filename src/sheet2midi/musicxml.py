@@ -446,3 +446,218 @@ def inspect_measure_timelines(
         "missing_measures": missing,
         "measures": results,
     }
+
+
+
+def inspect_irregular_measures(
+    path: Path,
+    measures: list[str],
+    part_id: str | None = None,
+) -> dict:
+    if not measures:
+        raise ValueError("At least one measure number is required")
+
+    root = parse_root(path)
+    if _local(root.tag) != "score-partwise":
+        raise ValueError("Only score-partwise MusicXML is currently supported")
+
+    requested = set(measures)
+    results: list[dict] = []
+
+    for part in _children(root, "part"):
+        current_part_id = part.attrib.get("id", "part")
+        if part_id is not None and current_part_id != part_id:
+            continue
+
+        divisions = 1
+        beats = 4
+        beat_type = 4
+
+        for measure_index, measure in enumerate(_children(part, "measure"), start=1):
+            number = measure.attrib.get("number", str(measure_index))
+
+            for attributes in _children(measure, "attributes"):
+                div_text = _text(attributes, "divisions")
+                if div_text:
+                    divisions = max(1, int(div_text))
+                time = _child(attributes, "time")
+                if time is not None:
+                    beats = int(_text(time, "beats", "4") or "4")
+                    beat_type = int(_text(time, "beat-type", "4") or "4")
+
+            if number not in requested:
+                continue
+
+            cursor = 0
+            maximum = 0
+            last_note_start = 0
+            note_count = 0
+            rest_count = 0
+            chord_note_count = 0
+            grace_note_count = 0
+            dotted_note_count = 0
+            missing_type_count = 0
+            type_counts: dict[str, int] = {}
+            duration_counts: dict[str, int] = {}
+            beam_counts: dict[str, int] = {}
+            staff_spans: dict[int, list[int]] = {}
+            voice_spans: dict[tuple[int, str], list[int]] = {}
+            stream_totals: dict[tuple[int, str], int] = {}
+            backup_count = 0
+            backup_total = 0
+            forward_count = 0
+            forward_total = 0
+            time_modification_count = 0
+            tuplet_notation_count = 0
+            barline_count = len(_children(measure, "barline"))
+
+            print_markers = [
+                {
+                    "new_system": item.attrib.get("new-system"),
+                    "new_page": item.attrib.get("new-page"),
+                }
+                for item in measure
+                if _local(item.tag) == "print"
+            ]
+
+            for item in measure:
+                kind = _local(item.tag)
+                if kind == "backup":
+                    duration = int(_text(item, "duration", "0") or "0")
+                    backup_count += 1
+                    backup_total += duration
+                    cursor -= duration
+                    continue
+                if kind == "forward":
+                    duration = int(_text(item, "duration", "0") or "0")
+                    forward_count += 1
+                    forward_total += duration
+                    cursor += duration
+                    maximum = max(maximum, cursor)
+                    continue
+                if kind != "note":
+                    continue
+
+                note_count += 1
+                duration = int(_text(item, "duration", "0") or "0")
+                is_chord = _child(item, "chord") is not None
+                if is_chord:
+                    chord_note_count += 1
+                    start = last_note_start
+                else:
+                    start = cursor
+                    last_note_start = start
+                    cursor += duration
+
+                end = start + duration
+                maximum = max(maximum, end)
+
+                if _child(item, "rest") is not None:
+                    rest_count += 1
+                if _child(item, "grace") is not None:
+                    grace_note_count += 1
+                if _child(item, "dot") is not None:
+                    dotted_note_count += 1
+
+                note_type = _text(item, "type")
+                if note_type is None:
+                    missing_type_count += 1
+                    note_type = "<missing>"
+                type_counts[note_type] = type_counts.get(note_type, 0) + 1
+
+                duration_key = f"{duration / divisions:g}"
+                duration_counts[duration_key] = duration_counts.get(duration_key, 0) + 1
+
+                for beam in _children(item, "beam"):
+                    value = (beam.text or "").strip() or "<empty>"
+                    beam_counts[value] = beam_counts.get(value, 0) + 1
+
+                if _child(item, "time-modification") is not None:
+                    time_modification_count += 1
+                notations = _child(item, "notations")
+                if notations is not None:
+                    tuplet_notation_count += len(_children(notations, "tuplet"))
+
+                staff = int(_text(item, "staff", "1") or "1")
+                voice = _text(item, "voice", "1") or "1"
+                staff_span = staff_spans.setdefault(staff, [start, end])
+                staff_span[0] = min(staff_span[0], start)
+                staff_span[1] = max(staff_span[1], end)
+                voice_span = voice_spans.setdefault((staff, voice), [start, end])
+                voice_span[0] = min(voice_span[0], start)
+                voice_span[1] = max(voice_span[1], end)
+                if not is_chord:
+                    stream_key = (staff, voice)
+                    stream_totals[stream_key] = stream_totals.get(stream_key, 0) + duration
+
+            expected = beats * (4 / beat_type)
+            results.append(
+                {
+                    "part_id": current_part_id,
+                    "measure": number,
+                    "time_signature": f"{beats}/{beat_type}",
+                    "divisions": divisions,
+                    "expected_quarters": expected,
+                    "serialized_max_quarters": maximum / divisions,
+                    "final_cursor_quarters": cursor / divisions,
+                    "implicit": measure.attrib.get("implicit"),
+                    "non_controlling": measure.attrib.get("non-controlling"),
+                    "attributes_count": len(_children(measure, "attributes")),
+                    "barline_count": barline_count,
+                    "print_markers": print_markers,
+                    "note_count": note_count,
+                    "rest_count": rest_count,
+                    "chord_note_count": chord_note_count,
+                    "grace_note_count": grace_note_count,
+                    "dotted_note_count": dotted_note_count,
+                    "missing_type_count": missing_type_count,
+                    "note_type_counts": dict(sorted(type_counts.items())),
+                    "duration_quarter_counts": dict(
+                        sorted(duration_counts.items(), key=lambda item: float(item[0]))
+                    ),
+                    "beam_counts": dict(sorted(beam_counts.items())),
+                    "backup_count": backup_count,
+                    "backup_total_quarters": backup_total / divisions,
+                    "forward_count": forward_count,
+                    "forward_total_quarters": forward_total / divisions,
+                    "time_modification_count": time_modification_count,
+                    "tuplet_notation_count": tuplet_notation_count,
+                    "staff_spans": {
+                        str(staff): {
+                            "start_quarters": span[0] / divisions,
+                            "end_quarters": span[1] / divisions,
+                            "span_quarters": (span[1] - span[0]) / divisions,
+                        }
+                        for staff, span in sorted(staff_spans.items())
+                    },
+                    "voice_spans": {
+                        f"{staff}:{voice}": {
+                            "start_quarters": span[0] / divisions,
+                            "end_quarters": span[1] / divisions,
+                            "span_quarters": (span[1] - span[0]) / divisions,
+                        }
+                        for (staff, voice), span in sorted(voice_spans.items())
+                    },
+                    "independent_stream_totals_quarters": {
+                        f"{staff}:{voice}": total / divisions
+                        for (staff, voice), total in sorted(stream_totals.items())
+                    },
+                }
+            )
+
+    found = {(item["part_id"], item["measure"]) for item in results}
+    missing = []
+    for measure in measures:
+        if part_id is None:
+            if not any(found_measure == measure for _, found_measure in found):
+                missing.append(measure)
+        elif (part_id, measure) not in found:
+            missing.append(measure)
+
+    return {
+        "source": str(path),
+        "requested_measures": measures,
+        "part_id": part_id,
+        "missing_measures": missing,
+        "measures": results,
+    }
