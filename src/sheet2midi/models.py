@@ -51,8 +51,12 @@ class MeasureDiagnostic:
     classification: str
     actual_quarters: float
     expected_quarters: float
-    staff_durations: dict[str, float] = field(default_factory=dict)
+    staff_end_quarters: dict[str, float] = field(default_factory=dict)
     note_count: int = 0
+    backup_count: int = 0
+    forward_count: int = 0
+    staff_transition_count: int = 0
+    voice_transition_count: int = 0
     time_modification_count: int = 0
     tuplet_notation_count: int = 0
     reasons: list[str] = field(default_factory=list)
