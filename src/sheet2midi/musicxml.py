@@ -1022,3 +1022,242 @@ def inspect_measure_offsets(
         }
 
     raise ValueError(f"Part not found: {part_id}")
+
+
+
+def inspect_cross_staff_segments(
+    path: Path,
+    measures: list[str],
+    part_id: str | None = None,
+    group_size: int = 7,
+) -> dict:
+    if not measures:
+        raise ValueError("At least one measure number is required")
+    if group_size < 2:
+        raise ValueError("group_size must be at least 2")
+
+    root = parse_root(path)
+    if _local(root.tag) != "score-partwise":
+        raise ValueError("Only score-partwise MusicXML is currently supported")
+
+    requested = set(measures)
+    results: list[dict] = []
+
+    for part in _children(root, "part"):
+        current_part_id = part.attrib.get("id", "part")
+        if part_id is not None and current_part_id != part_id:
+            continue
+
+        divisions = 1
+        beats = 4
+        beat_type = 4
+
+        for measure_index, measure in enumerate(_children(part, "measure"), start=1):
+            number = measure.attrib.get("number", str(measure_index))
+
+            for attributes in _children(measure, "attributes"):
+                div_text = _text(attributes, "divisions")
+                if div_text:
+                    divisions = max(1, int(div_text))
+                time = _child(attributes, "time")
+                if time is not None:
+                    beats = int(_text(time, "beats", "4") or "4")
+                    beat_type = int(_text(time, "beat-type", "4") or "4")
+
+            if number not in requested:
+                continue
+
+            cursor = 0
+            maximum = 0
+            last_note_start = 0
+            backup_count = 0
+            backup_total = 0
+            forward_count = 0
+            forward_total = 0
+            boundaries: list[dict] = []
+            segments: list[dict] = []
+            current_segment: dict | None = None
+
+            def flush_segment() -> None:
+                nonlocal current_segment
+                if current_segment is None:
+                    return
+
+                advance_count = current_segment["advance_note_count"]
+                current_segment["exact_grouping"] = (
+                    advance_count >= group_size
+                    and advance_count % group_size == 0
+                )
+                current_segment["full_group_count"] = advance_count // group_size
+                current_segment["remainder_notes"] = advance_count % group_size
+                current_segment["span_quarters"] = (
+                    current_segment["end_div"] - current_segment["start_div"]
+                ) / divisions
+                current_segment["start_quarters"] = (
+                    current_segment.pop("start_div") / divisions
+                )
+                current_segment["end_quarters"] = (
+                    current_segment.pop("end_div") / divisions
+                )
+                current_segment["duration_quarter_counts"] = dict(
+                    sorted(
+                        current_segment["duration_quarter_counts"].items(),
+                        key=lambda item: float(item[0]),
+                    )
+                )
+                segments.append(current_segment)
+                current_segment = None
+
+            for item_index, item in enumerate(measure):
+                kind = _local(item.tag)
+
+                if kind == "attributes":
+                    div_text = _text(item, "divisions")
+                    if div_text:
+                        divisions = max(1, int(div_text))
+                    time = _child(item, "time")
+                    if time is not None:
+                        beats = int(_text(time, "beats", "4") or "4")
+                        beat_type = int(_text(time, "beat-type", "4") or "4")
+                    continue
+
+                if kind == "backup":
+                    flush_segment()
+                    duration = int(_text(item, "duration", "0") or "0")
+                    before = cursor
+                    cursor -= duration
+                    backup_count += 1
+                    backup_total += duration
+                    boundaries.append(
+                        {
+                            "index": item_index,
+                            "kind": "backup",
+                            "duration_quarters": duration / divisions,
+                            "cursor_before_quarters": before / divisions,
+                            "cursor_after_quarters": cursor / divisions,
+                        }
+                    )
+                    continue
+
+                if kind == "forward":
+                    flush_segment()
+                    duration = int(_text(item, "duration", "0") or "0")
+                    before = cursor
+                    cursor += duration
+                    maximum = max(maximum, cursor)
+                    forward_count += 1
+                    forward_total += duration
+                    boundaries.append(
+                        {
+                            "index": item_index,
+                            "kind": "forward",
+                            "duration_quarters": duration / divisions,
+                            "cursor_before_quarters": before / divisions,
+                            "cursor_after_quarters": cursor / divisions,
+                        }
+                    )
+                    continue
+
+                if kind != "note":
+                    continue
+
+                duration = int(_text(item, "duration", "0") or "0")
+                is_chord = _child(item, "chord") is not None
+                start = last_note_start if is_chord else cursor
+                if not is_chord:
+                    last_note_start = start
+                    cursor += duration
+                end = start + duration
+                maximum = max(maximum, end)
+
+                staff = int(_text(item, "staff", "1") or "1")
+                voice = _text(item, "voice", "1") or "1"
+                stream = (staff, voice)
+
+                if current_segment is not None:
+                    current_stream = (
+                        current_segment["staff"],
+                        current_segment["voice"],
+                    )
+                    if stream != current_stream:
+                        flush_segment()
+
+                if current_segment is None:
+                    current_segment = {
+                        "segment_index": len(segments),
+                        "staff": staff,
+                        "voice": voice,
+                        "start_div": start,
+                        "end_div": end,
+                        "note_count": 0,
+                        "advance_note_count": 0,
+                        "chord_note_count": 0,
+                        "rest_count": 0,
+                        "duration_quarter_counts": {},
+                    }
+
+                current_segment["note_count"] += 1
+                current_segment["end_div"] = max(current_segment["end_div"], end)
+                if is_chord:
+                    current_segment["chord_note_count"] += 1
+                else:
+                    current_segment["advance_note_count"] += 1
+                if _child(item, "rest") is not None:
+                    current_segment["rest_count"] += 1
+
+                duration_key = f"{duration / divisions:g}"
+                counts = current_segment["duration_quarter_counts"]
+                counts[duration_key] = counts.get(duration_key, 0) + 1
+
+            flush_segment()
+
+            stream_transitions = 0
+            for previous, current in zip(segments, segments[1:], strict=False):
+                if (
+                    previous["staff"] != current["staff"]
+                    or previous["voice"] != current["voice"]
+                ):
+                    stream_transitions += 1
+
+            expected = beats * (4 / beat_type)
+            results.append(
+                {
+                    "part_id": current_part_id,
+                    "measure": number,
+                    "time_signature": f"{beats}/{beat_type}",
+                    "divisions": divisions,
+                    "expected_quarters": expected,
+                    "serialized_max_quarters": maximum / divisions,
+                    "final_cursor_quarters": cursor / divisions,
+                    "group_size": group_size,
+                    "backup_count": backup_count,
+                    "backup_total_quarters": backup_total / divisions,
+                    "forward_count": forward_count,
+                    "forward_total_quarters": forward_total / divisions,
+                    "segment_count": len(segments),
+                    "stream_transition_count": stream_transitions,
+                    "exact_group_segment_count": sum(
+                        1 for segment in segments if segment["exact_grouping"]
+                    ),
+                    "boundaries": boundaries,
+                    "segments": segments,
+                }
+            )
+
+    found = {(item["part_id"], item["measure"]) for item in results}
+    missing = []
+    for measure in measures:
+        if part_id is None:
+            if not any(found_measure == measure for _, found_measure in found):
+                missing.append(measure)
+        elif (part_id, measure) not in found:
+            missing.append(measure)
+
+    return {
+        "source": str(path),
+        "requested_measures": measures,
+        "part_id": part_id,
+        "group_size": group_size,
+        "missing_measures": missing,
+        "measures": results,
+    }
