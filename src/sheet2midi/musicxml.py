@@ -767,7 +767,13 @@ def inspect_rhythm_runs(
                 notes = sorted(notes, key=lambda note: (note["start_div"], note["end_div"]))
                 run: list[dict] = []
 
-                def flush_run() -> None:
+                def flush_run(
+                    *,
+                    candidates: list[dict] = candidates,
+                    staff: int = staff,
+                    voice: str = voice,
+                    divisions: int = divisions,
+                ) -> None:
                     nonlocal run
                     if len(run) < min_notes:
                         run = []
