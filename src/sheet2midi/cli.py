@@ -7,7 +7,7 @@ from pathlib import Path
 from .benchmark.corpus import run_corpus
 from .benchmark.metrics import evaluate_scores
 from .midi import render_midi
-from .musicxml import inspect_measure_timelines
+from .musicxml import inspect_irregular_measures, inspect_measure_timelines
 from .omr import backend_status
 from .pipeline import convert
 from .validation import validate_musicxml, validate_musicxml_pages
@@ -57,6 +57,14 @@ def build_parser() -> argparse.ArgumentParser:
     inspect_parser.add_argument("measures", nargs="+")
     inspect_parser.add_argument("--part-id")
 
+    irregular_parser = sub.add_parser(
+        "inspect-irregular",
+        help="Summarize rhythmic evidence for suspicious MusicXML measures",
+    )
+    irregular_parser.add_argument("source", type=Path)
+    irregular_parser.add_argument("measures", nargs="+")
+    irregular_parser.add_argument("--part-id")
+
     evaluate_parser = sub.add_parser("evaluate", help="Compare predicted MusicXML to ground truth")
     evaluate_parser.add_argument("reference", type=Path)
     evaluate_parser.add_argument("prediction", type=Path)
@@ -87,6 +95,17 @@ def main() -> None:
         print(
             json.dumps(
                 inspect_measure_timelines(
+                    args.source,
+                    args.measures,
+                    part_id=args.part_id,
+                ),
+                indent=2,
+            )
+        )
+    elif args.command == "inspect-irregular":
+        print(
+            json.dumps(
+                inspect_irregular_measures(
                     args.source,
                     args.measures,
                     part_id=args.part_id,
