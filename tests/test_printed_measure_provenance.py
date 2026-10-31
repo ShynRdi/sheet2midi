@@ -60,4 +60,18 @@ def test_inspect_printed_measure_provenance_links_overfull_system_fragments(
         in links[("36", "37")]["reasons"]
     )
     assert links[("37", "38")]["classification"] == "weak_or_no_continuation_evidence"
+
+    assert result["candidate_fragment_groups"] == [
+        {
+            "measures": ["36", "37"],
+            "start_measure": "36",
+            "end_measure": "37",
+            "fragment_count": 2,
+            "all_overfull": True,
+        }
+    ]
+    assert result["separator_fragments"] == [
+        {"measure": "38", "reason": "meter_sized_fragment"}
+    ]
+    assert result["ungrouped_overfull_fragments"] == []
     assert result["warning"].startswith("Continuation classifications")
