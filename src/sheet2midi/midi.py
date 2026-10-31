@@ -1,12 +1,17 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from dataclasses import replace
 from pathlib import Path
 
 import mido
 
 from .models import KeySignatureEvent, NoteEvent, TempoEvent, TimeSignatureEvent
-from .musicxml import parse_events
+from .musicxml import (
+    inspect_measure_offsets,
+    inspect_rhythm_group_hypotheses,
+    parse_events,
+)
 from .validation import validate_musicxml
 
 TICKS_PER_BEAT = 480
@@ -139,11 +144,178 @@ def _write_conductor(
     _add_absolute_events(track, events)
 
 
+
+def _apply_explicit_tuplet_previews(
+    musicxml: Path,
+    notes: list[NoteEvent],
+    tempos: list[TempoEvent],
+    signatures: list[TimeSignatureEvent],
+    keys: list[KeySignatureEvent],
+    previews: list[tuple[str, str]],
+    group_size: int,
+    in_space_of: int,
+) -> tuple[
+    list[NoteEvent],
+    list[TempoEvent],
+    list[TimeSignatureEvent],
+    list[KeySignatureEvent],
+]:
+    if group_size < 2:
+        raise ValueError("group_size must be at least 2")
+    if in_space_of < 1 or in_space_of >= group_size:
+        raise ValueError("in_space_of must be between 1 and group_size - 1")
+
+    transformed_notes = list(notes)
+    transformed_tempos = list(tempos)
+    transformed_signatures = list(signatures)
+    transformed_keys = list(keys)
+    scale = in_space_of / group_size
+
+    for part_id, measure_number in previews:
+        report = inspect_rhythm_group_hypotheses(
+            musicxml,
+            [measure_number],
+            part_id=part_id,
+            group_size=group_size,
+        )
+        if report["missing_measures"]:
+            raise ValueError(
+                f"Tuplet preview measure not found: {part_id}:{measure_number}"
+            )
+
+        measure_report = report["measures"][0]
+        exact = [
+            hypothesis
+            for hypothesis in measure_report["hypotheses"]
+            if hypothesis["exact_grouping"]
+        ]
+        if len(exact) != 1:
+            raise ValueError(
+                "Tuplet preview requires exactly one exact grouping candidate in "
+                f"{part_id}:{measure_number}; found {len(exact)}"
+            )
+
+        hypothesis = exact[0]
+        offsets = inspect_measure_offsets(musicxml, part_id)
+        measure_offset = next(
+            (
+                item
+                for item in offsets["measures"]
+                if item["measure"] == measure_number
+            ),
+            None,
+        )
+        if measure_offset is None:
+            raise ValueError(
+                f"Tuplet preview measure offset not found: {part_id}:{measure_number}"
+            )
+
+        run_start = (
+            measure_offset["start_quarters"] + hypothesis["start_quarters"]
+        )
+        run_end = measure_offset["start_quarters"] + hypothesis["end_quarters"]
+        run_span = run_end - run_start
+        new_span = run_span * scale
+        shift = run_span - new_span
+        staff = int(hypothesis["staff"])
+        voice = str(hypothesis["voice"])
+
+        overlaps = [
+            note
+            for note in transformed_notes
+            if not (
+                note.part_id == part_id
+                and note.staff == staff
+                and note.voice == voice
+                and run_start <= note.start_quarters < run_end
+            )
+            and note.start_quarters < run_end
+            and (note.start_quarters + note.duration_quarters) > run_start
+        ]
+        if overlaps:
+            sample = overlaps[0]
+            raise ValueError(
+                "Tuplet preview rejected because another note overlaps the candidate "
+                f"run in {part_id}:{measure_number}: "
+                f"{sample.part_id}/staff{sample.staff}/voice{sample.voice}"
+            )
+
+        updated: list[NoteEvent] = []
+        for note in transformed_notes:
+            if (
+                note.part_id == part_id
+                and note.staff == staff
+                and note.voice == voice
+                and run_start <= note.start_quarters < run_end
+            ):
+                relative_start = note.start_quarters - run_start
+                updated.append(
+                    replace(
+                        note,
+                        start_quarters=run_start + relative_start * scale,
+                        duration_quarters=note.duration_quarters * scale,
+                    )
+                )
+            elif note.start_quarters >= run_end:
+                updated.append(
+                    replace(
+                        note,
+                        start_quarters=note.start_quarters - shift,
+                    )
+                )
+            else:
+                updated.append(note)
+
+        transformed_notes = updated
+        transformed_tempos = [
+            replace(
+                event,
+                start_quarters=(
+                    event.start_quarters - shift
+                    if event.start_quarters >= run_end
+                    else event.start_quarters
+                ),
+            )
+            for event in transformed_tempos
+        ]
+        transformed_signatures = [
+            replace(
+                event,
+                start_quarters=(
+                    event.start_quarters - shift
+                    if event.start_quarters >= run_end
+                    else event.start_quarters
+                ),
+            )
+            for event in transformed_signatures
+        ]
+        transformed_keys = [
+            replace(
+                event,
+                start_quarters=(
+                    event.start_quarters - shift
+                    if event.start_quarters >= run_end
+                    else event.start_quarters
+                ),
+            )
+            for event in transformed_keys
+        ]
+
+    return (
+        transformed_notes,
+        transformed_tempos,
+        transformed_signatures,
+        transformed_keys,
+    )
+
 def render_midi(
     musicxml: Path,
     output: Path,
     track_mode: str = "staff",
     repair_staff_serialization: bool = False,
+    tuplet_previews: list[tuple[str, str]] | None = None,
+    tuplet_group_size: int = 7,
+    tuplet_in_space_of: int = 6,
 ) -> Path:
     if track_mode not in {"staff", "part"}:
         raise ValueError("track_mode must be 'staff' or 'part'")
@@ -161,6 +333,17 @@ def render_midi(
         musicxml,
         repair_serialized_measures=repair_measures,
     )
+    if tuplet_previews:
+        notes, tempos, signatures, keys = _apply_explicit_tuplet_previews(
+            musicxml,
+            notes,
+            tempos,
+            signatures,
+            keys,
+            tuplet_previews,
+            tuplet_group_size,
+            tuplet_in_space_of,
+        )
     midi = mido.MidiFile(type=1, ticks_per_beat=TICKS_PER_BEAT)
     _write_conductor(midi, tempos, signatures, keys)
 
