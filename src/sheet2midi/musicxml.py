@@ -953,3 +953,72 @@ def inspect_rhythm_group_hypotheses(
         "missing_measures": run_report["missing_measures"],
         "measures": grouped_measures,
     }
+
+
+
+def inspect_measure_offsets(
+    path: Path,
+    part_id: str,
+) -> dict:
+    root = parse_root(path)
+    if _local(root.tag) != "score-partwise":
+        raise ValueError("Only score-partwise MusicXML is currently supported")
+
+    for part in _children(root, "part"):
+        current_part_id = part.attrib.get("id", "part")
+        if current_part_id != part_id:
+            continue
+
+        divisions = 1
+        absolute_quarters = 0.0
+        measures: list[dict] = []
+
+        for measure_index, measure in enumerate(_children(part, "measure"), start=1):
+            number = measure.attrib.get("number", str(measure_index))
+            cursor = 0
+            maximum = 0
+            last_note_start = 0
+
+            for item in measure:
+                kind = _local(item.tag)
+                if kind == "attributes":
+                    div_text = _text(item, "divisions")
+                    if div_text:
+                        divisions = max(1, int(div_text))
+                    continue
+                if kind == "backup":
+                    cursor -= int(_text(item, "duration", "0") or "0")
+                    continue
+                if kind == "forward":
+                    cursor += int(_text(item, "duration", "0") or "0")
+                    maximum = max(maximum, cursor)
+                    continue
+                if kind != "note":
+                    continue
+
+                duration = int(_text(item, "duration", "0") or "0")
+                is_chord = _child(item, "chord") is not None
+                start = last_note_start if is_chord else cursor
+                if not is_chord:
+                    last_note_start = start
+                    cursor += duration
+                maximum = max(maximum, start + duration)
+
+            duration_quarters = maximum / divisions
+            measures.append(
+                {
+                    "measure": number,
+                    "start_quarters": absolute_quarters,
+                    "duration_quarters": duration_quarters,
+                    "end_quarters": absolute_quarters + duration_quarters,
+                }
+            )
+            absolute_quarters += duration_quarters
+
+        return {
+            "source": str(path),
+            "part_id": part_id,
+            "measures": measures,
+        }
+
+    raise ValueError(f"Part not found: {part_id}")
