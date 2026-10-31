@@ -875,3 +875,81 @@ def inspect_rhythm_runs(
         "missing_measures": missing,
         "measures": results,
     }
+
+
+
+def inspect_rhythm_group_hypotheses(
+    path: Path,
+    measures: list[str],
+    part_id: str | None = None,
+    group_size: int = 7,
+    min_notes: int = 5,
+    max_duration_quarters: float = 0.5,
+) -> dict:
+    if group_size < 2:
+        raise ValueError("group_size must be at least 2")
+
+    run_report = inspect_rhythm_runs(
+        path,
+        measures,
+        part_id=part_id,
+        min_notes=min_notes,
+        max_duration_quarters=max_duration_quarters,
+    )
+
+    grouped_measures: list[dict] = []
+    for measure in run_report["measures"]:
+        hypotheses: list[dict] = []
+        for candidate in measure["candidates"]:
+            note_count = int(candidate["note_count"])
+            full_groups, remainder = divmod(note_count, group_size)
+            hypotheses.append(
+                {
+                    "staff": candidate["staff"],
+                    "voice": candidate["voice"],
+                    "start_quarters": candidate["start_quarters"],
+                    "end_quarters": candidate["end_quarters"],
+                    "note_count": note_count,
+                    "note_type": candidate["note_type"],
+                    "duration_quarters": candidate["duration_quarters"],
+                    "group_size": group_size,
+                    "full_group_count": full_groups,
+                    "remainder_notes": remainder,
+                    "exact_grouping": full_groups > 0 and remainder == 0,
+                    "encoded_group_span_quarters": (
+                        group_size * candidate["duration_quarters"]
+                    ),
+                    "has_tuplet_metadata": candidate["has_tuplet_metadata"],
+                    "evidence": (
+                        "exact_note_count_multiple_only"
+                        if full_groups > 0 and remainder == 0
+                        else "partial_note_count_match_only"
+                    ),
+                }
+            )
+
+        grouped_measures.append(
+            {
+                "part_id": measure["part_id"],
+                "measure": measure["measure"],
+                "time_signature": measure["time_signature"],
+                "expected_quarters": measure["expected_quarters"],
+                "print_markers": measure["print_markers"],
+                "hypothesis_count": len(hypotheses),
+                "exact_grouping_count": sum(
+                    1 for hypothesis in hypotheses if hypothesis["exact_grouping"]
+                ),
+                "hypotheses": hypotheses,
+            }
+        )
+
+    return {
+        "source": run_report["source"],
+        "requested_measures": run_report["requested_measures"],
+        "part_id": part_id,
+        "group_size": group_size,
+        "min_notes": min_notes,
+        "max_duration_quarters": max_duration_quarters,
+        "missing_measures": run_report["missing_measures"],
+        "measures": grouped_measures,
+    }
