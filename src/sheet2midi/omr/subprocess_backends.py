@@ -4,7 +4,7 @@ import shutil
 import subprocess
 from pathlib import Path
 
-from .base import OMRBackend
+from .base import NoMusicDetectedError, OMRBackend
 
 
 def _find_output(directory: Path, before: set[Path] | None = None) -> Path:
@@ -32,7 +32,20 @@ class HomrBackend(OMRBackend):
         if image.resolve() != local_image.resolve():
             shutil.copy2(image, local_image)
         before = set(output_dir.rglob("*.musicxml")) | set(output_dir.rglob("*.mxl"))
-        subprocess.run(["homr", str(local_image)], cwd=output_dir, check=True)
+        result = subprocess.run(
+            ["homr", str(local_image)],
+            cwd=output_dir,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            check=False,
+        )
+        if result.stdout:
+            print(result.stdout, end="")
+        if result.returncode != 0:
+            if "No staffs found" in (result.stdout or ""):
+                raise NoMusicDetectedError(f"No musical staff detected in {image}")
+            result.check_returncode()
         return _find_output(output_dir, before)
 
 
