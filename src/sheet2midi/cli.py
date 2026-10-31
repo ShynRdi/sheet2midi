@@ -8,6 +8,7 @@ from .benchmark.corpus import run_corpus
 from .benchmark.metrics import evaluate_scores
 from .midi import render_midi
 from .musicxml import (
+    inspect_cross_staff_segments,
     inspect_irregular_measures,
     inspect_measure_timelines,
     inspect_rhythm_group_hypotheses,
