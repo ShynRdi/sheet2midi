@@ -1432,6 +1432,83 @@ def inspect_printed_measure_provenance(
             }
         )
 
+    continuation_classes = {
+        "continuation_candidate",
+        "strong_continuation_candidate",
+    }
+    fragment_by_measure = {item["measure"]: item for item in fragments}
+    continuation_pairs = {
+        (link["from_measure"], link["to_measure"])
+        for link in adjacency_links
+        if link["classification"] in continuation_classes
+    }
+
+    candidate_fragment_groups: list[dict] = []
+    current_group: list[str] = []
+
+    for fragment in fragments:
+        measure = fragment["measure"]
+        if not current_group:
+            current_group = [measure]
+            continue
+
+        previous_measure = current_group[-1]
+        if (previous_measure, measure) in continuation_pairs:
+            current_group.append(measure)
+            continue
+
+        if len(current_group) > 1:
+            candidate_fragment_groups.append(
+                {
+                    "measures": current_group,
+                    "start_measure": current_group[0],
+                    "end_measure": current_group[-1],
+                    "fragment_count": len(current_group),
+                    "all_overfull": all(
+                        fragment_by_measure[item]["overfull"]
+                        for item in current_group
+                    ),
+                }
+            )
+        current_group = [measure]
+
+    if len(current_group) > 1:
+        candidate_fragment_groups.append(
+            {
+                "measures": current_group,
+                "start_measure": current_group[0],
+                "end_measure": current_group[-1],
+                "fragment_count": len(current_group),
+                "all_overfull": all(
+                    fragment_by_measure[item]["overfull"]
+                    for item in current_group
+                ),
+            }
+        )
+
+    grouped_measures = {
+        measure
+        for group in candidate_fragment_groups
+        for measure in group["measures"]
+    }
+    separator_fragments = [
+        {
+            "measure": fragment["measure"],
+            "reason": "meter_sized_fragment",
+        }
+        for fragment in fragments
+        if not fragment["overfull"] and fragment["measure"] not in grouped_measures
+    ]
+    ungrouped_overfull_fragments = [
+        {
+            "measure": fragment["measure"],
+            "open_left": fragment is fragments[0],
+            "open_right": fragment is fragments[-1],
+        }
+        for fragment in fragments
+        if fragment["overfull"] and fragment["measure"] not in grouped_measures
+    ]
+
     found = {(item["part_id"], item["measure"]) for item in fragments}
     missing = []
     for measure in measures:
@@ -1449,6 +1526,9 @@ def inspect_printed_measure_provenance(
         "missing_measures": missing,
         "fragments": fragments,
         "adjacency_links": adjacency_links,
+        "candidate_fragment_groups": candidate_fragment_groups,
+        "separator_fragments": separator_fragments,
+        "ungrouped_overfull_fragments": ungrouped_overfull_fragments,
         "warning": (
             "Continuation classifications are diagnostic hypotheses only; "
             "they do not assign printed measure numbers or modify timing."
