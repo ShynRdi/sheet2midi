@@ -661,3 +661,217 @@ def inspect_irregular_measures(
         "missing_measures": missing,
         "measures": results,
     }
+
+
+
+def inspect_rhythm_runs(
+    path: Path,
+    measures: list[str],
+    part_id: str | None = None,
+    min_notes: int = 5,
+    max_duration_quarters: float = 0.5,
+) -> dict:
+    if not measures:
+        raise ValueError("At least one measure number is required")
+    if min_notes < 2:
+        raise ValueError("min_notes must be at least 2")
+    if max_duration_quarters <= 0:
+        raise ValueError("max_duration_quarters must be positive")
+
+    root = parse_root(path)
+    if _local(root.tag) != "score-partwise":
+        raise ValueError("Only score-partwise MusicXML is currently supported")
+
+    requested = set(measures)
+    results: list[dict] = []
+
+    for part in _children(root, "part"):
+        current_part_id = part.attrib.get("id", "part")
+        if part_id is not None and current_part_id != part_id:
+            continue
+
+        divisions = 1
+        beats = 4
+        beat_type = 4
+
+        for measure_index, measure in enumerate(_children(part, "measure"), start=1):
+            number = measure.attrib.get("number", str(measure_index))
+
+            for attributes in _children(measure, "attributes"):
+                div_text = _text(attributes, "divisions")
+                if div_text:
+                    divisions = max(1, int(div_text))
+                time = _child(attributes, "time")
+                if time is not None:
+                    beats = int(_text(time, "beats", "4") or "4")
+                    beat_type = int(_text(time, "beat-type", "4") or "4")
+
+            if number not in requested:
+                continue
+
+            cursor = 0
+            last_note_start = 0
+            stream_notes: dict[tuple[int, str], list[dict]] = {}
+
+            for item in measure:
+                kind = _local(item.tag)
+                if kind == "backup":
+                    cursor -= int(_text(item, "duration", "0") or "0")
+                    continue
+                if kind == "forward":
+                    cursor += int(_text(item, "duration", "0") or "0")
+                    continue
+                if kind != "note":
+                    continue
+
+                duration = int(_text(item, "duration", "0") or "0")
+                is_chord = _child(item, "chord") is not None
+                start = last_note_start if is_chord else cursor
+                if not is_chord:
+                    last_note_start = start
+                    cursor += duration
+
+                if (
+                    is_chord
+                    or duration <= 0
+                    or _child(item, "rest") is not None
+                    or _child(item, "grace") is not None
+                ):
+                    continue
+
+                staff = int(_text(item, "staff", "1") or "1")
+                voice = _text(item, "voice", "1") or "1"
+                note_type = _text(item, "type") or "<missing>"
+                duration_quarters = duration / divisions
+                has_time_modification = _child(item, "time-modification") is not None
+                notations = _child(item, "notations")
+                tuplet_count = (
+                    len(_children(notations, "tuplet"))
+                    if notations is not None
+                    else 0
+                )
+
+                stream_notes.setdefault((staff, voice), []).append(
+                    {
+                        "start_div": start,
+                        "end_div": start + duration,
+                        "duration_quarters": duration_quarters,
+                        "note_type": note_type,
+                        "has_time_modification": has_time_modification,
+                        "tuplet_notation_count": tuplet_count,
+                    }
+                )
+
+            candidates: list[dict] = []
+            for (staff, voice), notes in sorted(stream_notes.items()):
+                notes = sorted(notes, key=lambda note: (note["start_div"], note["end_div"]))
+                run: list[dict] = []
+
+                def flush_run(
+                    *,
+                    candidates: list[dict] = candidates,
+                    staff: int = staff,
+                    voice: str = voice,
+                    divisions: int = divisions,
+                ) -> None:
+                    nonlocal run
+                    if len(run) < min_notes:
+                        run = []
+                        return
+
+                    duration_quarters = run[0]["duration_quarters"]
+                    if duration_quarters > max_duration_quarters:
+                        run = []
+                        return
+
+                    has_tuplet_metadata = any(
+                        note["has_time_modification"]
+                        or note["tuplet_notation_count"] > 0
+                        for note in run
+                    )
+                    candidates.append(
+                        {
+                            "staff": staff,
+                            "voice": voice,
+                            "start_quarters": run[0]["start_div"] / divisions,
+                            "end_quarters": run[-1]["end_div"] / divisions,
+                            "span_quarters": (
+                                run[-1]["end_div"] - run[0]["start_div"]
+                            )
+                            / divisions,
+                            "note_count": len(run),
+                            "note_type": run[0]["note_type"],
+                            "duration_quarters": duration_quarters,
+                            "has_tuplet_metadata": has_tuplet_metadata,
+                            "candidate_kind": (
+                                "short_run_with_tuplet_metadata"
+                                if has_tuplet_metadata
+                                else "short_run_without_tuplet_metadata"
+                            ),
+                        }
+                    )
+                    run = []
+
+                for note in notes:
+                    if not run:
+                        run = [note]
+                        continue
+
+                    previous = run[-1]
+                    same_duration = (
+                        abs(
+                            note["duration_quarters"]
+                            - previous["duration_quarters"]
+                        )
+                        <= 1e-9
+                    )
+                    same_type = note["note_type"] == previous["note_type"]
+                    contiguous = note["start_div"] == previous["end_div"]
+
+                    if same_duration and same_type and contiguous:
+                        run.append(note)
+                    else:
+                        flush_run()
+                        run = [note]
+
+                flush_run()
+
+            print_markers = [
+                {
+                    "new_system": item.attrib.get("new-system"),
+                    "new_page": item.attrib.get("new-page"),
+                }
+                for item in measure
+                if _local(item.tag) == "print"
+            ]
+            expected = beats * (4 / beat_type)
+            results.append(
+                {
+                    "part_id": current_part_id,
+                    "measure": number,
+                    "time_signature": f"{beats}/{beat_type}",
+                    "expected_quarters": expected,
+                    "print_markers": print_markers,
+                    "candidate_count": len(candidates),
+                    "candidates": candidates,
+                }
+            )
+
+    found = {(item["part_id"], item["measure"]) for item in results}
+    missing = []
+    for measure in measures:
+        if part_id is None:
+            if not any(found_measure == measure for _, found_measure in found):
+                missing.append(measure)
+        elif (part_id, measure) not in found:
+            missing.append(measure)
+
+    return {
+        "source": str(path),
+        "requested_measures": measures,
+        "part_id": part_id,
+        "min_notes": min_notes,
+        "max_duration_quarters": max_duration_quarters,
+        "missing_measures": missing,
+        "measures": results,
+    }
