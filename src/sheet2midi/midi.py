@@ -165,11 +165,8 @@ def _apply_explicit_tuplet_previews(
     if in_space_of < 1 or in_space_of >= group_size:
         raise ValueError("in_space_of must be between 1 and group_size - 1")
 
-    transformed_notes = list(notes)
-    transformed_tempos = list(tempos)
-    transformed_signatures = list(signatures)
-    transformed_keys = list(keys)
     scale = in_space_of / group_size
+    preview_specs: list[dict] = []
 
     for part_id, measure_number in previews:
         report = inspect_rhythm_group_hypotheses(
@@ -210,15 +207,39 @@ def _apply_explicit_tuplet_previews(
                 f"Tuplet preview measure offset not found: {part_id}:{measure_number}"
             )
 
-        run_start = (
+        original_start = (
             measure_offset["start_quarters"] + hypothesis["start_quarters"]
         )
-        run_end = measure_offset["start_quarters"] + hypothesis["end_quarters"]
+        original_end = measure_offset["start_quarters"] + hypothesis["end_quarters"]
+        preview_specs.append(
+            {
+                "part_id": part_id,
+                "measure": measure_number,
+                "staff": int(hypothesis["staff"]),
+                "voice": str(hypothesis["voice"]),
+                "original_start": original_start,
+                "original_end": original_end,
+            }
+        )
+
+    preview_specs.sort(key=lambda item: item["original_start"])
+
+    transformed_notes = list(notes)
+    transformed_tempos = list(tempos)
+    transformed_signatures = list(signatures)
+    transformed_keys = list(keys)
+    cumulative_shift = 0.0
+
+    for spec in preview_specs:
+        part_id = spec["part_id"]
+        measure_number = spec["measure"]
+        staff = spec["staff"]
+        voice = spec["voice"]
+        run_start = spec["original_start"] - cumulative_shift
+        run_end = spec["original_end"] - cumulative_shift
         run_span = run_end - run_start
         new_span = run_span * scale
         shift = run_span - new_span
-        staff = int(hypothesis["staff"])
-        voice = str(hypothesis["voice"])
 
         overlaps = [
             note
@@ -300,6 +321,7 @@ def _apply_explicit_tuplet_previews(
             )
             for event in transformed_keys
         ]
+        cumulative_shift += shift
 
     return (
         transformed_notes,
