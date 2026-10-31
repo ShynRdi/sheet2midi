@@ -8,6 +8,7 @@ from .midi import render_midi
 from .models import ConversionResult
 from .musicxml import merge_scores, normalize_musicxml
 from .omr import get_backend
+from .omr.base import NoMusicDetectedError
 from .preprocess import prepare_pages
 from .validation import validate_musicxml
 
@@ -30,9 +31,23 @@ def convert(
         work = Path(tmp)
         pages = prepare_pages(source, work / "pages")
         recognized: list[Path] = []
+        skipped_pages: list[dict[str, object]] = []
+
         for index, page in enumerate(pages, start=1):
             page_output = work / "omr" / f"page-{index:04d}"
-            recognized_page = backend.recognize(page, page_output)
+            try:
+                recognized_page = backend.recognize(page, page_output)
+            except NoMusicDetectedError as exc:
+                skipped_pages.append(
+                    {
+                        "page": index,
+                        "source": str(page),
+                        "reason": "no_musical_staff_detected",
+                        "detail": str(exc),
+                    }
+                )
+                continue
+
             recognized.append(recognized_page)
 
             if keep_intermediates:
@@ -40,6 +55,19 @@ def convert(
                     recognized_page,
                     output_dir / "intermediates" / f"page-{index:04d}.musicxml",
                 )
+
+        if keep_intermediates and skipped_pages:
+            skipped_path = output_dir / "intermediates" / "skipped-pages.json"
+            skipped_path.parent.mkdir(parents=True, exist_ok=True)
+            skipped_path.write_text(
+                json.dumps(skipped_pages, indent=2),
+                encoding="utf-8",
+            )
+
+        if not recognized:
+            raise NoMusicDetectedError(
+                f"No musical staff detected on any page of {source}"
+            )
 
         musicxml = merge_scores(recognized, output_dir / "score.musicxml")
 
