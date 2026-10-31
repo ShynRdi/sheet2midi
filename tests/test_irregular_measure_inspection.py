@@ -2,7 +2,6 @@ from pathlib import Path
 
 from sheet2midi.musicxml import inspect_irregular_measures
 
-
 SCORE = """<?xml version="1.0" encoding="UTF-8"?>
 <score-partwise version="4.0">
   <part-list>
