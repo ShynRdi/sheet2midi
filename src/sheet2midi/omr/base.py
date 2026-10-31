@@ -4,6 +4,10 @@ from abc import ABC, abstractmethod
 from pathlib import Path
 
 
+class NoMusicDetectedError(RuntimeError):
+    """Raised when a page contains no recognizable musical staff."""
+
+
 class OMRBackend(ABC):
     name: str
 
