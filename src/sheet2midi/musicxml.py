@@ -1078,7 +1078,11 @@ def inspect_cross_staff_segments(
             segments: list[dict] = []
             current_segment: dict | None = None
 
-            def flush_segment() -> None:
+            def flush_segment(
+                *,
+                divisions: int = divisions,
+                segments: list[dict] = segments,
+            ) -> None:
                 nonlocal current_segment
                 if current_segment is None:
                     return
@@ -1102,7 +1106,7 @@ def inspect_cross_staff_segments(
                 current_segment["duration_quarter_counts"] = dict(
                     sorted(
                         current_segment["duration_quarter_counts"].items(),
-                        key=lambda item: float(item[0]),
+                        key=lambda entry: float(entry[0]),
                     )
                 )
                 segments.append(current_segment)
