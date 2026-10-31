@@ -1265,3 +1265,192 @@ def inspect_cross_staff_segments(
         "missing_measures": missing,
         "measures": results,
     }
+
+
+
+def inspect_printed_measure_provenance(
+    path: Path,
+    measures: list[str],
+    part_id: str | None = None,
+    overfull_ratio: float = 1.5,
+) -> dict:
+    if not measures:
+        raise ValueError("At least one measure number is required")
+    if overfull_ratio <= 1:
+        raise ValueError("overfull_ratio must be greater than 1")
+
+    root = parse_root(path)
+    if _local(root.tag) != "score-partwise":
+        raise ValueError("Only score-partwise MusicXML is currently supported")
+
+    requested = set(measures)
+    fragments: list[dict] = []
+
+    for part in _children(root, "part"):
+        current_part_id = part.attrib.get("id", "part")
+        if part_id is not None and current_part_id != part_id:
+            continue
+
+        divisions = 1
+        beats = 4
+        beat_type = 4
+        measure_nodes = _children(part, "measure")
+
+        for measure_index, measure in enumerate(measure_nodes, start=1):
+            number = measure.attrib.get("number", str(measure_index))
+
+            attributes_count = 0
+            time_declared = False
+            divisions_declared = False
+            cursor = 0
+            maximum = 0
+            last_note_start = 0
+
+            for item in measure:
+                kind = _local(item.tag)
+                if kind == "attributes":
+                    attributes_count += 1
+                    div_text = _text(item, "divisions")
+                    if div_text:
+                        divisions = max(1, int(div_text))
+                        divisions_declared = True
+                    time = _child(item, "time")
+                    if time is not None:
+                        beats = int(_text(time, "beats", "4") or "4")
+                        beat_type = int(_text(time, "beat-type", "4") or "4")
+                        time_declared = True
+                    continue
+                if kind == "backup":
+                    cursor -= int(_text(item, "duration", "0") or "0")
+                    continue
+                if kind == "forward":
+                    cursor += int(_text(item, "duration", "0") or "0")
+                    maximum = max(maximum, cursor)
+                    continue
+                if kind != "note":
+                    continue
+
+                duration = int(_text(item, "duration", "0") or "0")
+                is_chord = _child(item, "chord") is not None
+                start = last_note_start if is_chord else cursor
+                if not is_chord:
+                    last_note_start = start
+                    cursor += duration
+                maximum = max(maximum, start + duration)
+
+            if number not in requested:
+                continue
+
+            expected = beats * (4 / beat_type)
+            actual = maximum / divisions
+            ratio = actual / expected if expected else 0.0
+            print_markers = [
+                {
+                    "new_system": item.attrib.get("new-system"),
+                    "new_page": item.attrib.get("new-page"),
+                }
+                for item in measure
+                if _local(item.tag) == "print"
+            ]
+            starts_new_system = any(
+                marker["new_system"] == "yes" for marker in print_markers
+            )
+            starts_new_page = any(
+                marker["new_page"] == "yes" for marker in print_markers
+            )
+
+            fragments.append(
+                {
+                    "part_id": current_part_id,
+                    "measure": number,
+                    "score_index": measure_index,
+                    "time_signature": f"{beats}/{beat_type}",
+                    "expected_quarters": expected,
+                    "actual_quarters": actual,
+                    "duration_ratio": ratio,
+                    "overfull": ratio >= overfull_ratio,
+                    "implicit": measure.attrib.get("implicit"),
+                    "non_controlling": measure.attrib.get("non-controlling"),
+                    "attributes_count": attributes_count,
+                    "divisions_declared": divisions_declared,
+                    "time_declared": time_declared,
+                    "barline_count": len(_children(measure, "barline")),
+                    "print_markers": print_markers,
+                    "starts_new_system": starts_new_system,
+                    "starts_new_page": starts_new_page,
+                }
+            )
+
+    fragments.sort(key=lambda item: (item["part_id"], item["score_index"]))
+
+    adjacency_links: list[dict] = []
+    for previous, current in zip(fragments, fragments[1:], strict=False):
+        if previous["part_id"] != current["part_id"]:
+            continue
+        if current["score_index"] != previous["score_index"] + 1:
+            continue
+
+        reasons: list[str] = []
+        strength = 0
+
+        if previous["overfull"] and current["overfull"]:
+            reasons.append("both_adjacent_fragments_are_overfull")
+            strength += 2
+        if current["starts_new_system"]:
+            reasons.append("current_fragment_starts_new_system")
+            strength += 1
+        if current["starts_new_page"]:
+            reasons.append("current_fragment_starts_new_page")
+            strength += 2
+        if (
+            current["attributes_count"] > 0
+            and current["divisions_declared"]
+            and not current["time_declared"]
+        ):
+            reasons.append("current_fragment_redeclares_context_without_new_meter")
+            strength += 1
+        if previous["time_signature"] == current["time_signature"]:
+            reasons.append("same_inherited_time_signature")
+        if previous["overfull"] and not current["overfull"]:
+            reasons.append("overfull_run_ends_before_current_fragment")
+            strength -= 1
+
+        if strength >= 3:
+            classification = "strong_continuation_candidate"
+        elif strength >= 2:
+            classification = "continuation_candidate"
+        else:
+            classification = "weak_or_no_continuation_evidence"
+
+        adjacency_links.append(
+            {
+                "from_measure": previous["measure"],
+                "to_measure": current["measure"],
+                "classification": classification,
+                "evidence_score": strength,
+                "reasons": reasons,
+            }
+        )
+
+    found = {(item["part_id"], item["measure"]) for item in fragments}
+    missing = []
+    for measure in measures:
+        if part_id is None:
+            if not any(found_measure == measure for _, found_measure in found):
+                missing.append(measure)
+        elif (part_id, measure) not in found:
+            missing.append(measure)
+
+    return {
+        "source": str(path),
+        "requested_measures": measures,
+        "part_id": part_id,
+        "overfull_ratio": overfull_ratio,
+        "missing_measures": missing,
+        "fragments": fragments,
+        "adjacency_links": adjacency_links,
+        "warning": (
+            "Continuation classifications are diagnostic hypotheses only; "
+            "they do not assign printed measure numbers or modify timing."
+        ),
+    }
