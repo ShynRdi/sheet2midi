@@ -8,6 +8,7 @@ from .benchmark.corpus import run_corpus
 from .benchmark.metrics import evaluate_scores
 from .midi import render_midi
 from .musicxml import (
+    inspect_cross_staff_segments,
     inspect_irregular_measures,
     inspect_measure_timelines,
     inspect_rhythm_group_hypotheses,
@@ -100,6 +101,15 @@ def build_parser() -> argparse.ArgumentParser:
     rhythm_group_parser.add_argument("--min-notes", type=int, default=5)
     rhythm_group_parser.add_argument("--max-duration", type=float, default=0.5)
 
+    cross_staff_parser = sub.add_parser(
+        "inspect-cross-staff",
+        help="Segment suspicious measures by stream changes and backup/forward boundaries",
+    )
+    cross_staff_parser.add_argument("source", type=Path)
+    cross_staff_parser.add_argument("measures", nargs="+")
+    cross_staff_parser.add_argument("--part-id")
+    cross_staff_parser.add_argument("--group-size", type=int, default=7)
+
     evaluate_parser = sub.add_parser("evaluate", help="Compare predicted MusicXML to ground truth")
     evaluate_parser.add_argument("reference", type=Path)
     evaluate_parser.add_argument("prediction", type=Path)
@@ -171,6 +181,18 @@ def main() -> None:
                     group_size=args.group_size,
                     min_notes=args.min_notes,
                     max_duration_quarters=args.max_duration,
+                ),
+                indent=2,
+            )
+        )
+    elif args.command == "inspect-cross-staff":
+        print(
+            json.dumps(
+                inspect_cross_staff_segments(
+                    args.source,
+                    args.measures,
+                    part_id=args.part_id,
+                    group_size=args.group_size,
                 ),
                 indent=2,
             )
