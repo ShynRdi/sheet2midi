@@ -5,7 +5,6 @@ import pytest
 
 from sheet2midi.midi import render_midi
 
-
 SAFE_SCORE = """<?xml version="1.0" encoding="UTF-8"?>
 <score-partwise version="4.0">
   <part-list>
