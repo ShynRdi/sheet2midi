@@ -11,6 +11,7 @@ from .musicxml import (
     inspect_cross_staff_segments,
     inspect_irregular_measures,
     inspect_measure_timelines,
+    inspect_printed_measure_provenance,
     inspect_rhythm_group_hypotheses,
     inspect_rhythm_runs,
 )
@@ -110,6 +111,15 @@ def build_parser() -> argparse.ArgumentParser:
     cross_staff_parser.add_argument("--part-id")
     cross_staff_parser.add_argument("--group-size", type=int, default=7)
 
+    provenance_parser = sub.add_parser(
+        "inspect-provenance",
+        help="Inspect evidence that adjacent OMR measures may be printed-measure fragments",
+    )
+    provenance_parser.add_argument("source", type=Path)
+    provenance_parser.add_argument("measures", nargs="+")
+    provenance_parser.add_argument("--part-id")
+    provenance_parser.add_argument("--overfull-ratio", type=float, default=1.5)
+
     evaluate_parser = sub.add_parser("evaluate", help="Compare predicted MusicXML to ground truth")
     evaluate_parser.add_argument("reference", type=Path)
     evaluate_parser.add_argument("prediction", type=Path)
@@ -193,6 +203,18 @@ def main() -> None:
                     args.measures,
                     part_id=args.part_id,
                     group_size=args.group_size,
+                ),
+                indent=2,
+            )
+        )
+    elif args.command == "inspect-provenance":
+        print(
+            json.dumps(
+                inspect_printed_measure_provenance(
+                    args.source,
+                    args.measures,
+                    part_id=args.part_id,
+                    overfull_ratio=args.overfull_ratio,
                 ),
                 indent=2,
             )
