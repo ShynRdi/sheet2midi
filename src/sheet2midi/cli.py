@@ -44,6 +44,15 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Experimentally repair only measures classified as staff serialization errors",
     )
+    midi_parser.add_argument(
+        "--preview-tuplet",
+        action="append",
+        default=[],
+        metavar="PART:MEASURE",
+        help="Preview an explicit exact-group tuplet candidate in MIDI only",
+    )
+    midi_parser.add_argument("--tuplet-group-size", type=int, default=7)
+    midi_parser.add_argument("--tuplet-in-space-of", type=int, default=6)
 
     validate_parser = sub.add_parser("validate", help="Validate MusicXML structure")
     validate_parser.add_argument("source", type=Path)
@@ -167,11 +176,27 @@ def main() -> None:
             )
         )
     elif args.command == "midi":
+        previews: list[tuple[str, str]] = []
+        for value in args.preview_tuplet:
+            if ":" not in value:
+                raise SystemExit(
+                    "--preview-tuplet must use PART:MEASURE format, e.g. P1:40"
+                )
+            part_id, measure = value.split(":", 1)
+            if not part_id or not measure:
+                raise SystemExit(
+                    "--preview-tuplet must use PART:MEASURE format, e.g. P1:40"
+                )
+            previews.append((part_id, measure))
+
         output = render_midi(
             args.source,
             args.output,
             args.track_mode,
             repair_staff_serialization=args.repair_staff_serialization,
+            tuplet_previews=previews,
+            tuplet_group_size=args.tuplet_group_size,
+            tuplet_in_space_of=args.tuplet_in_space_of,
         )
         print(output)
     elif args.command == "evaluate":
