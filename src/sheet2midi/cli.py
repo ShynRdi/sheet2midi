@@ -9,9 +9,9 @@ from .benchmark.metrics import evaluate_scores
 from .midi import render_midi
 from .musicxml import (
     inspect_cross_staff_segments,
-    inspect_printed_measure_provenance,
     inspect_irregular_measures,
     inspect_measure_timelines,
+    inspect_printed_measure_provenance,
     inspect_rhythm_group_hypotheses,
     inspect_rhythm_runs,
 )
