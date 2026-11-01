@@ -1,5 +1,7 @@
 # Sheet2MIDI
 
+> **Development status: NOT STABLE. No public release is planned until the reliability gates pass.** A successful conversion, valid XML, or non-empty MIDI does not establish musical correctness. See [RELIABILITY.md](RELIABILITY.md) for supported-scope criteria, false-safe risk, benchmarks, and the no-release policy.
+
 **Sheet2MIDI** is an open-source pipeline for turning printed sheet music into editable **MusicXML** and standard **MIDI** files that can be imported into DAWs such as GarageBand, Logic Pro, Ableton Live, FL Studio, Reaper, and notation editors.
 
 > Image/PDF → OMR → MusicXML → validation → multi-track MIDI
@@ -8,7 +10,7 @@ The project intentionally uses **MusicXML as the canonical intermediate format**
 
 ## Goals
 
-Sheet2MIDI is designed around real multi-part scores rather than a single melody line:
+Sheet2MIDI's architecture aims to handle real multi-part scores, but **reliable recognition for the following classes is not yet certified**:
 
 - solo melody / instrument sheets
 - piano grand staff (right hand + left hand)
@@ -173,6 +175,9 @@ Then upload a sheet to `POST /v1/convert`. The endpoint returns a ZIP containing
 MusicXML remains richer than MIDI. Lyrics, engraving, slurs, most articulation, detailed dynamics, pedal semantics, repeat realization, ornaments, and advanced score directions are not all rendered to playback yet.
 
 ## Reliability philosophy
+
+Current output must be inspected; the validator cannot yet guarantee that parts or staves were preserved, and the project has known multi-page and complex-rhythm limitations ([#26](https://github.com/ShynRdi/sheet2midi/issues/26), [#25](https://github.com/ShynRdi/sheet2midi/issues/25), [#12](https://github.com/ShynRdi/sheet2midi/issues/12)). Do not use the converter as an authoritative transcription tool. No unsupported automatic correction is enabled by default.
+
 
 OMR recognition and MIDI rendering are different problems. A symbol can be correctly retained in MusicXML even if v0.1 does not yet translate it into a MIDI performance instruction. Do not throw away the MusicXML output.
 
